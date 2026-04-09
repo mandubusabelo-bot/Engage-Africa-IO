@@ -26,6 +26,7 @@ import { logger } from './utils/logger.js';
 import { initSupabase } from './services/database.js';
 import authRoutes from './api/routes/auth.js';
 import whatsappRoutes from './api/routes/whatsapp.js';
+import whatsappBusinessRoutes from './api/routes/whatsappBusiness.js';
 import agentsRoutes from './api/routes/agents.js';
 import messagesRoutes from './api/routes/messages.js';
 import knowledgeRoutes from './api/routes/knowledge.js';
@@ -68,6 +69,7 @@ app.get('/health', (req, res) => {
 
 app.use('/api/auth', authRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
+app.use('/api/whatsapp-business', whatsappBusinessRoutes);
 app.use('/api/agents', agentsRoutes);
 app.use('/api/messages', messagesRoutes);
 app.use('/api/knowledge', knowledgeRoutes);
