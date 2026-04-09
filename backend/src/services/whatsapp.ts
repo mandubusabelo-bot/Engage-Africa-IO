@@ -21,16 +21,22 @@ class WhatsAppService {
         await this.disconnect();
       }
       
-      // Simple, stable configuration
+      // Railway-compatible configuration
       this.client = new Client({
         authStrategy: new LocalAuth({ 
-          clientId: `user_${userId}`
+          clientId: `user_${userId}`,
+          dataPath: './whatsapp-sessions'
         }),
         puppeteer: {
-          headless: true,
+          headless: 'new',
           args: [
             '--no-sandbox',
-            '--disable-setuid-sandbox'
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--disable-gpu'
           ]
         }
       });
@@ -79,8 +85,8 @@ class WhatsAppService {
         this.qrCode = '';
       });
       
-      // Wait for QR code with timeout
-      const maxWait = 60000; // 60 seconds
+      // Wait for QR code with timeout (reduced for Railway environment)
+      const maxWait = 30000; // 30 seconds
       const startTime = Date.now();
       let lastLog = 0;
       
@@ -89,7 +95,7 @@ class WhatsAppService {
         
         // Log progress every 5 seconds
         if (elapsed - lastLog > 5000) {
-          logger.info(`⏳ Waiting for QR code... ${Math.round(elapsed / 1000)}s elapsed`);
+          logger.info(`\u23f3 Waiting for QR code... ${Math.round(elapsed / 1000)}s elapsed`);
           lastLog = elapsed;
         }
         
@@ -97,8 +103,8 @@ class WhatsAppService {
       }
       
       if (!this.qrCode) {
-        logger.error('❌ QR code generation timeout after 60 seconds');
-        throw new Error('QR code generation timeout. Please try again.');
+        logger.error('\u274c QR code generation timeout after 30 seconds - Railway environment may not support WhatsApp Web');
+        throw new Error('QR code generation timeout. WhatsApp Web may not be supported in this environment. Consider using a local development setup.');
       }
       
       logger.info('✅ QR Code ready for scanning');
