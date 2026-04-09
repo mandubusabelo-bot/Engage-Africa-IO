@@ -1,0 +1,20 @@
+[
+  {
+    "title": "Back Support Cushion",
+    "content": "Engage Africa Back Support Cushion provides ergonomic support for back pain. Price: $29.99. Features: Memory foam, adjustable straps, breathable cover. Helps maintain proper posture while sitting.",
+    "category": "products",
+    "tags": ["back", "support", "cushion", "posture", "pain"]
+  },
+  {
+    "title": "Muscle Relief Gel",
+    "content": "Muscle Relief Gel is a cooling gel for muscle pain. Price: R85. Uses: Fast relief for muscle soreness, joint pain, and inflammation. Non-greasy formula, absorbs quickly.",
+    "category": "products", 
+    "tags": ["muscle", "pain", "gel", "relief", "cooling"]
+  },
+  {
+    "title": "Joint Support Tablets",
+    "content": "Joint Support Tablets for joint health. Price: R120. 60 tablets per bottle. Contains glucosamine and chondroitin. Supports joint flexibility and reduces discomfort.",
+    "category": "products",
+    "tags": ["joint", "tablets", "support", "flexibility", "health"]
+  }
+]
