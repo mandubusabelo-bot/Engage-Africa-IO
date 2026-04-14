@@ -6,7 +6,7 @@ RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
-RUN npm ci --legacy-peer-deps
+RUN npm install --legacy-peer-deps
 
 # Rebuild the source code only when needed
 FROM base AS builder
@@ -16,6 +16,14 @@ COPY . .
 
 # Disable telemetry during build
 ENV NEXT_TELEMETRY_DISABLED 1
+
+# Set placeholder environment variables for build
+ENV NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co
+ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder
+ENV SUPABASE_SERVICE_KEY=placeholder
+ENV JWT_SECRET=placeholder
+ENV OPENROUTER_API_KEY=placeholder
+ENV GEMINI_API_KEY=placeholder
 
 RUN npm run build
 
