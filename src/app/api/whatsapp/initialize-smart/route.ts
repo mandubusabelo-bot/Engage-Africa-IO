@@ -7,6 +7,27 @@ export async function POST() {
     const evolutionApiKey = process.env.EVOLUTION_API_KEY
     const instanceName = process.env.EVOLUTION_INSTANCE_NAME
 
+    const webhookUrl = process.env.EVOLUTION_WEBHOOK_URL || `${process.env.NEXTAUTH_URL || ''}/api/whatsapp/webhook`
+
+    const registerWebhook = async () => {
+      try {
+        await fetch(`${evolutionApiUrl}/webhook/set/${instanceName}`, {
+          method: 'POST',
+          headers: { 'apikey': evolutionApiKey!, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            webhook: {
+              enabled: true,
+              url: webhookUrl,
+              events: ['messages.upsert', 'connection.update', 'qrcode.updated']
+            }
+          })
+        })
+        console.log('[Evolution] Webhook registered:', webhookUrl)
+      } catch (e: any) {
+        console.error('[Evolution] Webhook registration failed:', e?.message)
+      }
+    }
+
     // Try Evolution API first
     if (evolutionApiUrl && evolutionApiKey && instanceName) {
       try {
@@ -83,6 +104,7 @@ export async function POST() {
               const isConnected = stateData.instance?.state === 'open' || stateData.state === 'open'
 
               if (isConnected) {
+                await registerWebhook()
                 return NextResponse.json({
                   success: true,
                   data: {
