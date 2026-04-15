@@ -16,13 +16,17 @@ export async function POST() {
           }
         })
 
+        console.log('[Evolution] fetchInstances status:', checkResponse.status)
+
         if (checkResponse.ok) {
           const instances = await checkResponse.json()
+          console.log('[Evolution] instances raw:', JSON.stringify(instances).slice(0, 500))
           const instanceExists = instances?.some((inst: any) =>
             inst.instance === instanceName ||
             inst.instance?.instanceName === instanceName ||
             inst.instanceName === instanceName
           )
+          console.log('[Evolution] instanceExists:', instanceExists)
 
           if (!instanceExists) {
             // Create instance
@@ -39,8 +43,10 @@ export async function POST() {
               })
             })
 
+            console.log('[Evolution] createInstance status:', createResponse.status)
             if (createResponse.ok) {
               const createData = await createResponse.json()
+              console.log('[Evolution] createData:', JSON.stringify(createData).slice(0, 300))
               
               // Get QR code
               const qrResponse = await fetch(`${evolutionApiUrl}/instance/connect/${instanceName}`, {
@@ -110,8 +116,12 @@ export async function POST() {
             }
           }
         }
-      } catch (error) {
-        console.error('Evolution API initialize error:', error)
+      } catch (error: any) {
+        console.error('[Evolution] initialize error:', error?.message || error)
+        return NextResponse.json({
+          success: false,
+          error: `Evolution API error: ${error?.message || String(error)}`
+        }, { status: 500 })
       }
     }
 
