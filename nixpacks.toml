@@ -5,7 +5,7 @@ nixPkgs = ["nodejs_20"]
 cmds = ["npm install --legacy-peer-deps"]
 
 [phases.build]
-cmds = ["npm run build 2>&1 || (cat .next/error.log 2>/dev/null; exit 1)"]
+cmds = ["rm -rf .next", "npm run build"]
 
 [start]
 cmd = "npm start"
