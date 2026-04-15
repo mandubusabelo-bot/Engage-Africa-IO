@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export async function GET() {
   try {
-    const evolutionApiUrl = process.env.EVOLUTION_API_URL
+    const rawUrl = process.env.EVOLUTION_API_URL || ''
+    const evolutionApiUrl = rawUrl && !rawUrl.startsWith('http') ? `https://${rawUrl}` : rawUrl
     const evolutionApiKey = process.env.EVOLUTION_API_KEY
     const instanceName = process.env.EVOLUTION_INSTANCE_NAME
 
