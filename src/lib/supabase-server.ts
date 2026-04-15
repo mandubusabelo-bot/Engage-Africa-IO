@@ -9,8 +9,9 @@ let supabaseAdminInstance: ReturnType<typeof createClient> | null = null
 export const supabaseAdmin = (() => {
   if (!supabaseAdminInstance) {
     if (!supabaseUrl || !serviceKey) {
-      console.error('Missing Supabase server environment variables')
-      throw new Error('Missing SUPABASE_SERVICE_KEY environment variable')
+      console.warn('Missing Supabase server environment variables - creating placeholder client')
+      // Return a placeholder that will fail gracefully when used
+      return createClient('https://placeholder.supabase.co', 'placeholder-service-key') as any
     }
     supabaseAdminInstance = createClient(
       supabaseUrl,
