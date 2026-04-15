@@ -44,7 +44,9 @@ export default function Dashboard() {
         if (response.data?.warning) {
           setWhatsAppNotice(response.data.warning)
         }
-        await handleRefreshWhatsApp()
+        if (!response.data?.qrCode) {
+          await handleRefreshWhatsApp()
+        }
       }
     } catch (error: any) {
       console.error('Failed to initialize WhatsApp:', error)
@@ -273,13 +275,23 @@ export default function Dashboard() {
               </div>
             ) : whatsappStatus?.qrCode ? (
               <div className="space-y-3">
-                <div className="rounded-xl p-4 border border-slate-800 bg-slate-900/90">
+                <div className="rounded-xl p-4 border border-emerald-500/30 bg-emerald-500/5">
                   <div className="text-center">
-                    <p className="text-sm font-medium text-slate-300 mb-3">Scan with WhatsApp</p>
-                    <img src={whatsappStatus.qrCode} alt="WhatsApp QR Code" className="w-40 h-40 mx-auto" />
+                    <p className="text-sm font-semibold text-emerald-300 mb-1">Scan with WhatsApp</p>
+                    <p className="text-xs text-slate-400 mb-3">Open WhatsApp → Linked Devices → Link a Device</p>
+                    <div className="bg-white p-3 rounded-xl inline-block">
+                      <img src={whatsappStatus.qrCode} alt="WhatsApp QR Code" className="w-56 h-56" />
+                    </div>
                   </div>
                 </div>
                 <div className="flex gap-2">
+                  <a
+                    href={whatsappStatus.qrCode}
+                    download="whatsapp-qr.png"
+                    className="flex-1 px-3 py-2 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-lg hover:bg-emerald-500/30 transition-colors text-sm text-center"
+                  >
+                    Download QR
+                  </a>
                   <button
                     onClick={handleInitializeWhatsApp}
                     disabled={initializingWhatsApp}
