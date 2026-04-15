@@ -7,6 +7,7 @@ restartPolicyMaxRetries = 10
 
 [variables]
 NEXT_IGNORE_INCORRECT_LOCKFILE = "1"
+NODE_ENV = "production"
 
 # Nixpacks will automatically use Railway's environment variables during build
 # NEXT_PUBLIC_* variables will be baked into the frontend at build time
