@@ -18,7 +18,11 @@ export async function POST() {
 
         if (checkResponse.ok) {
           const instances = await checkResponse.json()
-          const instanceExists = instances?.some((inst: any) => inst.instance === instanceName)
+          const instanceExists = instances?.some((inst: any) =>
+            inst.instance === instanceName ||
+            inst.instance?.instanceName === instanceName ||
+            inst.instanceName === instanceName
+          )
 
           if (!instanceExists) {
             // Create instance
