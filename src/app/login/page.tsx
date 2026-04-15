@@ -3,9 +3,13 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Eye, EyeOff } from 'lucide-react'
+import { Eye, EyeOff, AlertTriangle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import Image from 'next/image'
+
+// Check if Supabase is properly configured
+const isSupabaseConfigured = process.env.NEXT_PUBLIC_SUPABASE_URL &&
+  !process.env.NEXT_PUBLIC_SUPABASE_URL.includes('placeholder')
 
 export default function LoginPage() {
   const router = useRouter()
@@ -76,6 +80,16 @@ export default function LoginPage() {
             {showLogo ? <EyeOff size={16} /> : <Eye size={16} />}
           </button>
         </div>
+
+        {!isSupabaseConfigured && (
+          <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-amber-300 text-sm flex items-start gap-2">
+            <AlertTriangle size={16} className="mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="font-medium">Configuration Error</p>
+              <p>Supabase is not properly configured. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY during build.</p>
+            </div>
+          </div>
+        )}
 
         {error && (
           <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/30 rounded-lg text-rose-300 text-sm">
