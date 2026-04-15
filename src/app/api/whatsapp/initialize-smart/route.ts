@@ -18,7 +18,7 @@ export async function POST() {
             webhook: {
               enabled: true,
               url: webhookUrl,
-              events: ['messages.upsert', 'connection.update', 'qrcode.updated']
+              events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE', 'QRCODE_UPDATED', 'SEND_MESSAGE']
             }
           })
         })
