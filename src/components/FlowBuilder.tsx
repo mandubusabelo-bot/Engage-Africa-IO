@@ -22,7 +22,7 @@ import '@xyflow/react/dist/style.css'
 import {
   Plus, Trash2, Save, MessageSquare, Clock, GitBranch, Webhook, Bot, X,
   Play, ZoomIn, ZoomOut, Maximize, AlertCircle, CheckCircle, LayoutTemplate,
-  Settings, ChevronDown, ChevronRight, Undo, Sparkles
+  Settings, ChevronDown, ChevronRight, Undo, Sparkles, ShoppingCart
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import InlineToast from './InlineToast'
