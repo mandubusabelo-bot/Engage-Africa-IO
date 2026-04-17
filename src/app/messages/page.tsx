@@ -36,12 +36,16 @@ export default function Messages() {
       setLoading(true)
       
       // Load contacts first to get names
-      const contactsRes = await api.getContacts()
       const contactsMap = new Map()
-      if (contactsRes.success && contactsRes.data) {
-        contactsRes.data.forEach((c: any) => {
-          contactsMap.set(c.phone, c.name || c.phone.split('@')[0])
-        })
+      try {
+        const contactsRes = await api.getContacts()
+        if (contactsRes.success && contactsRes.data) {
+          contactsRes.data.forEach((c: any) => {
+            contactsMap.set(c.phone, c.name || c.phone.split('@')[0])
+          })
+        }
+      } catch (contactsError) {
+        console.warn('Contacts unavailable, using phone fallback in messages UI')
       }
       
       const response = await api.getMessages()

@@ -3,13 +3,35 @@ import { supabaseAdmin } from '@/lib/supabase-server'
 
 export async function GET(request: NextRequest) {
   try {
-    // Get all contacts
-    const { data: contacts, error: contactsError } = await supabaseAdmin
+    // Get all contacts (fallback for older schemas that don't have last_message_at)
+    let contacts: any[] | null = null
+    const primaryQuery = await supabaseAdmin
       .from('contacts')
       .select('*')
-      .order('last_message_at', { ascending: false, nullsFirst: false })
+      .order('last_message_at', { ascending: false })
 
-    if (contactsError) throw contactsError
+    if (primaryQuery.error) {
+      const fallbackQuery = await supabaseAdmin
+        .from('contacts')
+        .select('*')
+        .order('created_at', { ascending: false })
+
+      if (fallbackQuery.error) {
+        const lastResortQuery = await supabaseAdmin
+          .from('contacts')
+          .select('*')
+
+        if (lastResortQuery.error) {
+          throw lastResortQuery.error
+        }
+
+        contacts = lastResortQuery.data
+      } else {
+        contacts = fallbackQuery.data
+      }
+    } else {
+      contacts = primaryQuery.data
+    }
 
     // Get all agents to map names
     const { data: agents } = await supabaseAdmin
@@ -17,7 +39,7 @@ export async function GET(request: NextRequest) {
       .select('id, name')
 
     // Create agent map
-    const agentMap = new Map(agents?.map(a => [a.id, a.name]) || [])
+    const agentMap = new Map((agents || []).map((a: { id: string; name: string }) => [a.id, a.name]))
 
     // Transform to include agent name
     const transformed = contacts?.map((c: any) => ({
@@ -35,8 +57,8 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    
-    const { data: contact, error } = await supabaseAdmin
+
+    const primaryInsert = await supabaseAdmin
       .from('contacts')
       .insert({
         ...body,
@@ -45,6 +67,25 @@ export async function POST(request: NextRequest) {
       })
       .select()
       .single()
+
+    let contact = primaryInsert.data
+    let error = primaryInsert.error
+
+    if (error) {
+      const fallbackInsert = await supabaseAdmin
+        .from('contacts')
+        .insert({
+          phone: body.phone,
+          name: body.name,
+          profile_pic_url: body.profile_pic_url,
+          assigned_agent_id: body.assigned_agent_id
+        })
+        .select()
+        .single()
+
+      contact = fallbackInsert.data
+      error = fallbackInsert.error
+    }
 
     if (error) throw error
 

@@ -132,7 +132,10 @@ export async function handleIncomingWhatsApp(phone: string, message: string, pus
   if (!contact) {
     // Create new contact
     const contactName = pushName || phone.split('@')[0]
-    const { data: newContacts, error: insertError } = await supabaseAdmin
+    let newContacts: any[] | null = null
+    let insertError: any = null
+
+    const primaryInsert = await supabaseAdmin
       .from('contacts')
       .insert({
         phone,
@@ -140,6 +143,22 @@ export async function handleIncomingWhatsApp(phone: string, message: string, pus
         last_message_at: new Date().toISOString()
       })
       .select()
+
+    if (primaryInsert.error) {
+      const fallbackInsert = await supabaseAdmin
+        .from('contacts')
+        .insert({
+          phone,
+          name: contactName
+        })
+        .select()
+
+      newContacts = fallbackInsert.data
+      insertError = fallbackInsert.error
+    } else {
+      newContacts = primaryInsert.data
+      insertError = null
+    }
     
     if (insertError) {
       console.error('[AI Handler] Failed to create contact:', insertError)
@@ -154,13 +173,22 @@ export async function handleIncomingWhatsApp(phone: string, message: string, pus
     }
   } else {
     // Update last message time and name if provided
-    await supabaseAdmin
+    const primaryUpdate = await supabaseAdmin
       .from('contacts')
       .update({
         last_message_at: new Date().toISOString(),
         ...(pushName && { name: pushName })
       })
       .eq('phone', phone)
+
+    if (primaryUpdate.error) {
+      await supabaseAdmin
+        .from('contacts')
+        .update({
+          ...(pushName && { name: pushName })
+        })
+        .eq('phone', phone)
+    }
     console.log(`[AI Handler] Existing contact: ${contact.name}`)
   }
 
