@@ -2,12 +2,21 @@
 
 import { useState } from 'react'
 import { Plus, Trash2, Save, MessageSquare, Clock, GitBranch, Webhook, Bot, X } from 'lucide-react'
+import { api } from '@/lib/api'
 
 interface FlowStep {
   id: string
   type: 'agent_chat' | 'delay' | 'condition' | 'webhook' | 'notification'
   config: any
   order: number
+}
+
+const STEP_PICKER_STYLES: Record<string, string> = {
+  agent_chat: 'border-cyan-500/20 hover:border-cyan-500/40 text-cyan-300',
+  delay: 'border-yellow-500/20 hover:border-yellow-500/40 text-yellow-300',
+  condition: 'border-purple-500/20 hover:border-purple-500/40 text-purple-300',
+  webhook: 'border-blue-500/20 hover:border-blue-500/40 text-blue-300',
+  notification: 'border-green-500/20 hover:border-green-500/40 text-green-300'
 }
 
 interface FlowBuilderProps {
@@ -58,6 +67,19 @@ export default function FlowBuilder({ flowId, initialSteps, onSave }: FlowBuilde
   const [editingStep, setEditingStep] = useState<FlowStep | null>(null)
   const [saving, setSaving] = useState(false)
   const [draggingStepId, setDraggingStepId] = useState<string | null>(null)
+  const [agents, setAgents] = useState<{ id: string; name: string }[]>([])
+
+  const loadAgents = async () => {
+    if (agents.length > 0) return
+    try {
+      const response = await api.getAgents()
+      if (response.success && response.data) {
+        setAgents(response.data.map((agent: any) => ({ id: agent.id, name: agent.name })))
+      }
+    } catch {
+      setAgents([])
+    }
+  }
 
   const addStep = (type: string) => {
     const newStep: FlowStep = {
@@ -146,7 +168,10 @@ export default function FlowBuilder({ flowId, initialSteps, onSave }: FlowBuilde
         <h3 className="text-lg font-semibold text-white">Flow Steps</h3>
         <div className="flex gap-2">
           <button
-            onClick={() => setShowAddStep(true)}
+            onClick={() => {
+              setShowAddStep(true)
+              loadAgents()
+            }}
             className="flex items-center gap-2 bg-cyan-500 hover:bg-cyan-600 text-slate-950 px-4 py-2 rounded-lg font-medium transition-colors"
           >
             <Plus size={18} />
@@ -279,9 +304,9 @@ export default function FlowBuilder({ flowId, initialSteps, onSave }: FlowBuilde
                   <button
                     key={stepType.type}
                     onClick={() => addStep(stepType.type)}
-                    className={`p-4 bg-slate-800 hover:bg-slate-700 rounded-lg border-2 border-${stepType.color}-500/20 hover:border-${stepType.color}-500/40 transition-colors text-left`}
+                    className={`p-4 bg-slate-800 hover:bg-slate-700 rounded-lg border-2 transition-colors text-left ${STEP_PICKER_STYLES[stepType.type] || 'border-slate-700 text-slate-300'}`}
                   >
-                    <Icon size={24} className={`text-${stepType.color}-400 mb-2`} />
+                    <Icon size={24} className="mb-2" />
                     <div className="font-medium text-white text-sm">{stepType.label}</div>
                   </button>
                 )
@@ -312,14 +337,17 @@ export default function FlowBuilder({ flowId, initialSteps, onSave }: FlowBuilde
               {editingStep.type === 'agent_chat' && (
                 <>
                   <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">Agent ID</label>
-                    <input
-                      type="text"
+                    <label className="block text-sm font-medium text-slate-300 mb-2">Agent</label>
+                    <select
                       value={editingStep.config.agentId || ''}
                       onChange={(e) => updateStepConfig(editingStep.id, { ...editingStep.config, agentId: e.target.value })}
                       className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white"
-                      placeholder="Enter agent ID"
-                    />
+                    >
+                      <option value="">Select an agent</option>
+                      {agents.map((agent) => (
+                        <option key={agent.id} value={agent.id}>{agent.name}</option>
+                      ))}
+                    </select>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-300 mb-2">Message</label>

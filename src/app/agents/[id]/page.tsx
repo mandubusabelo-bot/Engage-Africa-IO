@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import Layout from '@/components/Layout'
 import { Bot, BookOpen, Plus, Trash2, Save, ArrowLeft, Power } from 'lucide-react'
 import { api } from '@/lib/api'
+import InlineToast from '@/components/InlineToast'
 
 interface KnowledgeItem {
   id: string
@@ -26,7 +27,13 @@ export default function AgentDetail() {
   const [showLinkKnowledge, setShowLinkKnowledge] = useState(false)
   const [newKnowledge, setNewKnowledge] = useState({ title: '', content: '' })
   const [selectedKnowledgeId, setSelectedKnowledgeId] = useState('')
-  const [activeTab, setActiveTab] = useState<'settings' | 'knowledge'>('settings')
+  const [activeTab, setActiveTab] = useState<'settings' | 'knowledge'>('knowledge')
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null)
+
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    setToast({ message, type })
+    setTimeout(() => setToast(null), 3000)
+  }
 
   const loadData = useCallback(async () => {
     try {
@@ -82,9 +89,11 @@ export default function AgentDetail() {
         setShowAddKnowledge(false)
         setNewKnowledge({ title: '', content: '' })
         loadData()
+        showToast('Knowledge item added', 'success')
       }
     } catch (error) {
       console.error('Failed to add knowledge:', error)
+      showToast('Failed to add knowledge', 'error')
     }
   }
 
@@ -113,10 +122,12 @@ export default function AgentDetail() {
           setShowLinkKnowledge(false)
           setSelectedKnowledgeId('')
           loadData()
+          showToast('Knowledge linked to agent', 'success')
         }
       }
     } catch (error) {
       console.error('Failed to link knowledge:', error)
+      showToast('Failed to link knowledge', 'error')
     }
   }
 
@@ -131,21 +142,29 @@ export default function AgentDetail() {
 
       if (result.success) {
         loadData()
+        showToast('Knowledge deleted', 'success')
       }
     } catch (error) {
       console.error('Failed to delete knowledge:', error)
+      showToast('Failed to delete knowledge', 'error')
     }
   }
 
   const handleUpdateAgent = async (updates: any) => {
+    const previous = agent
+    setAgent((current: any) => ({ ...(current || {}), ...updates }))
+
     try {
       const response = await api.updateAgent(agentId, updates)
 
       if (response.success) {
         loadData()
+        showToast('Agent settings updated', 'success')
       }
     } catch (error) {
+      setAgent(previous)
       console.error('Failed to update agent:', error)
+      showToast('Failed to update agent', 'error')
     }
   }
 
@@ -171,6 +190,13 @@ export default function AgentDetail() {
 
   return (
     <Layout>
+      {toast && (
+        <InlineToast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
       <div className="p-6">
         {/* Header */}
         <div className="flex items-center gap-4 mb-6">

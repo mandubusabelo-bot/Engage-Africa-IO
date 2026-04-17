@@ -1,17 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-server'
 
+const percentChange = (current: number, previous: number) => {
+  if (previous === 0) return current > 0 ? 100 : 0
+  return Math.round(((current - previous) / previous) * 100)
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const startDate = searchParams.get('startDate')
     const endDate = searchParams.get('endDate')
 
-    // Get messages
+    const now = new Date()
+    const defaultStart = new Date(now)
+    defaultStart.setDate(defaultStart.getDate() - 7)
+    const currentStart = startDate ? new Date(startDate) : defaultStart
+    const currentEnd = endDate ? new Date(endDate) : now
+    const durationMs = Math.max(currentEnd.getTime() - currentStart.getTime(), 24 * 60 * 60 * 1000)
+    const previousEnd = new Date(currentStart.getTime())
+    const previousStart = new Date(currentStart.getTime() - durationMs)
+
+    // Get messages (current period)
     let messagesQuery = supabaseAdmin.from('messages').select('*')
     if (startDate) messagesQuery = messagesQuery.gte('created_at', startDate)
     if (endDate) messagesQuery = messagesQuery.lte('created_at', endDate)
     const { data: messages } = await messagesQuery
+
+    // Get previous messages window
+    const { data: previousMessages } = await supabaseAdmin
+      .from('messages')
+      .select('id, phone, created_at, agent_id')
+      .gte('created_at', previousStart.toISOString())
+      .lt('created_at', previousEnd.toISOString())
 
     // Get contacts (fallback for older schemas)
     const contactsWithLastMessage = await supabaseAdmin.from('contacts').select('*')
@@ -90,16 +111,20 @@ export async function GET(request: NextRequest) {
       activeConversations = recentPhoneSet.size
     }
 
+    const previousMessageCount = previousMessages?.length || 0
+    const previousUserCount = new Set((previousMessages || []).map((m: any) => m.phone).filter(Boolean)).size
+    const previousActiveAgents = new Set((previousMessages || []).map((m: any) => m.agent_id).filter(Boolean)).size
+
     const analytics = {
       totalMessages,
       totalUsers,
       activeAgents,
       activeConversations,
       avgResponseTime: 2,
-      messageGrowth: 15,
-      userGrowth: 8,
-      agentGrowth: 0,
-      responseImprovement: -5,
+      messageGrowth: percentChange(totalMessages, previousMessageCount),
+      userGrowth: percentChange(totalUsers, previousUserCount),
+      agentGrowth: percentChange(activeAgents, previousActiveAgents),
+      responseImprovement: 0,
       messageData,
       maxMessages,
       topAgents

@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Fragment } from 'react'
 import Layout from '@/components/Layout'
 import { Search, UserPlus, Phone, Mail, Tag, Clock, MoreVertical, Filter } from 'lucide-react'
 import { api } from '@/lib/api'
+import InlineToast from '@/components/InlineToast'
 
 interface Contact {
   id: string
@@ -30,6 +31,14 @@ export default function Contacts() {
   const [searchQuery, setSearchQuery] = useState('')
   const [filterLifecycle, setFilterLifecycle] = useState('all')
   const [showAddModal, setShowAddModal] = useState(false)
+  const [actionContactId, setActionContactId] = useState<string | null>(null)
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null)
+  const [newContact, setNewContact] = useState({ name: '', phone: '', lifecycle: 'new_lead' })
+
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    setToast({ message, type })
+    setTimeout(() => setToast(null), 3000)
+  }
 
   useEffect(() => {
     loadData()
@@ -74,8 +83,79 @@ export default function Contacts() {
     return matchesSearch && matchesLifecycle
   })
 
+  const handleAssignAgent = async (contactId: string, assigned_agent_id: string) => {
+    const previous = contacts
+    setContacts((current) => current.map((contact) => (
+      contact.id === contactId
+        ? {
+            ...contact,
+            assigned_agent_id: assigned_agent_id || undefined,
+            assigned_agent_name: agents.find((a) => a.id === assigned_agent_id)?.name || null
+          }
+        : contact
+    )))
+
+    try {
+      await api.updateContact(contactId, { assigned_agent_id: assigned_agent_id || null })
+      showToast('Contact assignment updated', 'success')
+    } catch (error) {
+      setContacts(previous)
+      showToast('Failed to assign contact', 'error')
+    }
+  }
+
+  const handleLifecycleChange = async (contactId: string, lifecycle: string) => {
+    const previous = contacts
+    setContacts((current) => current.map((contact) => (
+      contact.id === contactId ? { ...contact, lifecycle } : contact
+    )))
+
+    try {
+      await api.updateContact(contactId, { lifecycle })
+      showToast('Contact status updated', 'success')
+    } catch (error) {
+      setContacts(previous)
+      showToast('Failed to update contact status', 'error')
+    }
+  }
+
+  const handleCreateContact = async () => {
+    if (!newContact.phone.trim()) {
+      showToast('Phone is required', 'error')
+      return
+    }
+
+    const normalizedPhone = newContact.phone.includes('@')
+      ? newContact.phone
+      : `${newContact.phone.replace(/\D/g, '')}@s.whatsapp.net`
+
+    try {
+      const response = await api.createContact({
+        name: newContact.name || normalizedPhone.split('@')[0],
+        phone: normalizedPhone,
+        lifecycle: newContact.lifecycle
+      })
+
+      if (response.success && response.data) {
+        setContacts((current) => [response.data, ...current])
+        setShowAddModal(false)
+        setNewContact({ name: '', phone: '', lifecycle: 'new_lead' })
+        showToast('Contact added', 'success')
+      }
+    } catch (error) {
+      showToast('Failed to add contact', 'error')
+    }
+  }
+
   return (
     <Layout>
+      {toast && (
+        <InlineToast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
       <div className="p-6">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
@@ -175,55 +255,149 @@ export default function Contacts() {
                 </tr>
               ) : (
                 filteredContacts.map((contact) => (
-                  <tr key={contact.id} className="hover:bg-gray-750">
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-semibold">
-                          {contact.name?.substring(0, 2).toUpperCase() || '?'}
+                  <Fragment key={contact.id}>
+                    <tr key={contact.id} className="hover:bg-gray-750">
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-semibold">
+                            {contact.name?.substring(0, 2).toUpperCase() || '?'}
+                          </div>
+                          <div>
+                            <div className="text-white font-medium">{contact.name || 'Unknown'}</div>
+                            <div className="text-gray-400 text-sm">{contact.email || 'No email'}</div>
+                          </div>
                         </div>
-                        <div>
-                          <div className="text-white font-medium">{contact.name || 'Unknown'}</div>
-                          <div className="text-gray-400 text-sm">{contact.email || 'No email'}</div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2 text-gray-300">
+                          <Phone size={16} className="text-gray-400" />
+                          {contact.phone?.replace('@s.whatsapp.net', '')}
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2 text-gray-300">
-                        <Phone size={16} className="text-gray-400" />
-                        {contact.phone?.replace('@s.whatsapp.net', '')}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium text-white ${getLifecycleColor(contact.lifecycle)}`}>
-                        {contact.lifecycle?.replace('_', ' ') || 'New Lead'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="text-gray-300">
-                        {contact.assigned_agent_name || 
-                         agents.find(a => a.id === contact.assigned_agent_id)?.name || 
-                         'Auto-assigned'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2 text-gray-400 text-sm">
-                        <Clock size={16} />
-                        {contact.last_message_at 
-                          ? new Date(contact.last_message_at).toLocaleDateString()
-                          : 'Never'}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <button className="text-gray-400 hover:text-white transition-colors">
-                        <MoreVertical size={20} />
-                      </button>
-                    </td>
-                  </tr>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium text-white ${getLifecycleColor(contact.lifecycle)}`}>
+                          {contact.lifecycle?.replace('_', ' ') || 'New Lead'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="text-gray-300">
+                          {contact.assigned_agent_name || 
+                          agents.find(a => a.id === contact.assigned_agent_id)?.name || 
+                          'Auto-assigned'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2 text-gray-400 text-sm">
+                          <Clock size={16} />
+                          {contact.last_message_at 
+                            ? new Date(contact.last_message_at).toLocaleDateString()
+                            : 'Never'}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <button
+                          onClick={() => setActionContactId(actionContactId === contact.id ? null : contact.id)}
+                          className="text-gray-400 hover:text-white transition-colors"
+                        >
+                          <MoreVertical size={20} />
+                        </button>
+                      </td>
+                    </tr>
+                    {actionContactId === contact.id && (
+                      <tr>
+                        <td colSpan={6} className="px-6 py-3 bg-gray-850 border-t border-gray-700">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-xs text-gray-400 mb-1">Assign Agent</label>
+                              <select
+                                value={contact.assigned_agent_id || ''}
+                                onChange={(e) => handleAssignAgent(contact.id, e.target.value)}
+                                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
+                              >
+                                <option value="">Unassigned</option>
+                                {agents.map((agent) => (
+                                  <option key={agent.id} value={agent.id}>{agent.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-xs text-gray-400 mb-1">Lifecycle / Group</label>
+                              <select
+                                value={contact.lifecycle || 'new_lead'}
+                                onChange={(e) => handleLifecycleChange(contact.id, e.target.value)}
+                                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
+                              >
+                                <option value="hot_lead">Hot Lead</option>
+                                <option value="new_lead">New Lead</option>
+                                <option value="customer">Customer</option>
+                                <option value="cold_lead">Cold Lead</option>
+                              </select>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 ))
               )}
             </tbody>
           </table>
         </div>
+
+        {showAddModal && (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+            <div className="w-full max-w-md rounded-xl border border-slate-700 bg-slate-950 p-6">
+              <h2 className="text-xl font-semibold text-slate-100 mb-4">Add Contact</h2>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm text-slate-300 mb-1">Name</label>
+                  <input
+                    value={newContact.name}
+                    onChange={(e) => setNewContact({ ...newContact, name: e.target.value })}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
+                    placeholder="Contact name"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-300 mb-1">Phone</label>
+                  <input
+                    value={newContact.phone}
+                    onChange={(e) => setNewContact({ ...newContact, phone: e.target.value })}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
+                    placeholder="e.g. 27821234567"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-300 mb-1">Lifecycle</label>
+                  <select
+                    value={newContact.lifecycle}
+                    onChange={(e) => setNewContact({ ...newContact, lifecycle: e.target.value })}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
+                  >
+                    <option value="new_lead">New Lead</option>
+                    <option value="hot_lead">Hot Lead</option>
+                    <option value="customer">Customer</option>
+                    <option value="cold_lead">Cold Lead</option>
+                  </select>
+                </div>
+              </div>
+              <div className="mt-5 flex gap-3">
+                <button
+                  onClick={() => setShowAddModal(false)}
+                  className="flex-1 rounded-lg border border-slate-700 px-4 py-2 text-slate-300"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCreateContact}
+                  className="flex-1 rounded-lg bg-cyan-500 px-4 py-2 font-semibold text-slate-950 hover:bg-cyan-400"
+                >
+                  Add Contact
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </Layout>
   )

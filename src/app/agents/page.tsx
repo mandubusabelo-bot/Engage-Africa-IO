@@ -3,8 +3,9 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Layout from '@/components/Layout'
-import { Bot, Plus, Edit, Power, MessageSquare } from 'lucide-react'
+import { Bot, Plus, Edit, Power, MessageSquare, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
+import InlineToast from '@/components/InlineToast'
 
 interface Agent {
   id: string
@@ -25,6 +26,7 @@ export default function Agents() {
   const [loading, setLoading] = useState(true)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null)
   const [newAgent, setNewAgent] = useState({
     name: '',
     description: '',
@@ -34,6 +36,11 @@ export default function Agents() {
   })
   const [editingAgent, setEditingAgent] = useState<any>(null)
   const [uploading, setUploading] = useState(false)
+
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    setToast({ message, type })
+    setTimeout(() => setToast(null), 3000)
+  }
 
   useEffect(() => {
     loadAgents()
@@ -121,18 +128,45 @@ export default function Agents() {
     const agent = agents.find(a => a.id === id)
     if (!agent) return
     
+    const nextIsActive = !isAgentActive(agent)
+    const previous = agents
+    setAgents((current) => current.map((a) => a.id === id ? { ...a, is_active: nextIsActive } : a))
+
     try {
-      const nextIsActive = !isAgentActive(agent)
       await api.updateAgent(id, { is_active: nextIsActive })
-      await loadAgents()
+      showToast(nextIsActive ? 'Agent activated for chats' : 'Agent paused', 'success')
     } catch (error) {
+      setAgents(previous)
       console.error('Failed to toggle agent status:', error)
-      alert('Failed to update agent status.')
+      showToast('Failed to update agent status.', 'error')
+    }
+  }
+
+  const handleDeleteAgent = async (id: string) => {
+    if (!confirm('Delete this agent? This action cannot be undone.')) return
+
+    const previous = agents
+    setAgents((current) => current.filter((agent) => agent.id !== id))
+
+    try {
+      await api.deleteAgent(id)
+      showToast('Agent deleted', 'success')
+    } catch (error) {
+      setAgents(previous)
+      console.error('Failed to delete agent:', error)
+      showToast('Failed to delete agent', 'error')
     }
   }
 
   return (
     <Layout>
+      {toast && (
+        <InlineToast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
       <div className="p-4 sm:p-8">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-8">
@@ -246,7 +280,20 @@ export default function Agents() {
                   <Edit size={14} />
                   Manage
                 </button>
+                <button
+                  onClick={() => handleDeleteAgent(agent.id)}
+                  className="px-3 py-2 bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-lg hover:bg-rose-500/20 transition-colors"
+                  title="Delete agent"
+                >
+                  <Trash2 size={14} />
+                </button>
               </div>
+
+              {isAgentActive(agent) && (
+                <p className="mt-3 text-xs text-emerald-300">
+                  Active for live chat routing
+                </p>
+              )}
             </div>
           ))}
         </div>

@@ -12,7 +12,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test:contracts": "node --test tests/api-contracts.test.mjs"
   },
   "dependencies": {
     "@google/generative-ai": "^0.1.3",

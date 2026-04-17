@@ -5,6 +5,7 @@ import Layout from '@/components/Layout'
 import { Plus, Play, Pause, Copy, Trash2, Sparkles, Zap, ChevronDown, Settings } from 'lucide-react'
 import { api } from '@/lib/api'
 import FlowBuilder from '@/components/FlowBuilder'
+import InlineToast from '@/components/InlineToast'
 
 interface WorkflowStep {
   id: string
@@ -29,6 +30,57 @@ interface Flow {
   runCount: number
 }
 
+const FLOW_TEMPLATES = {
+  welcome_and_route: {
+    label: 'Welcome + Route',
+    description: 'Greets contact and routes to selected agent.',
+    steps: [
+      {
+        id: 'step_welcome_1',
+        name: 'Welcome Message',
+        type: 'agent_chat',
+        config: { message: 'Hi! Thanks for reaching out. We are reviewing your request now.' }
+      },
+      {
+        id: 'step_welcome_2',
+        name: 'Wait 10 Seconds',
+        type: 'delay',
+        config: { duration: 10, unit: 'seconds' }
+      },
+      {
+        id: 'step_welcome_3',
+        name: 'Notify Team',
+        type: 'notification',
+        config: { channel: 'email', message: 'New contact entered welcome flow.' }
+      }
+    ]
+  },
+  lead_qualification: {
+    label: 'Lead Qualification',
+    description: 'Checks message and branches for sales follow-up.',
+    steps: [
+      {
+        id: 'step_lead_1',
+        name: 'Check Intent',
+        type: 'condition',
+        config: { field: 'message', operator: 'contains', value: 'price' }
+      },
+      {
+        id: 'step_lead_2',
+        name: 'Sales Agent Reply',
+        type: 'agent_chat',
+        config: { message: 'Great question. Let me connect you with sales details.' }
+      },
+      {
+        id: 'step_lead_3',
+        name: 'Webhook to CRM',
+        type: 'webhook',
+        config: { url: '', method: 'POST', headers: {} }
+      }
+    ]
+  }
+}
+
 export default function Flows() {
   const [flows, setFlows] = useState<Flow[]>([])
   const [loading, setLoading] = useState(true)
@@ -39,6 +91,13 @@ export default function Flows() {
   const [selectedNodeId, setSelectedNodeId] = useState<string>('trigger')
   const [editingTrigger, setEditingTrigger] = useState(false)
   const [triggerConfig, setTriggerConfig] = useState({ type: 'manual', schedule: '', event: '' })
+  const [flowRuns, setFlowRuns] = useState<any[]>([])
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null)
+
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    setToast({ message, type })
+    setTimeout(() => setToast(null), 3000)
+  }
 
   useEffect(() => {
     loadFlows()
@@ -81,6 +140,7 @@ export default function Flows() {
   const [newFlow, setNewFlow] = useState({
     name: '',
     description: '',
+    template: 'welcome_and_route',
     trigger: 'manual',
     schedule: '',
     event: ''
@@ -98,6 +158,21 @@ export default function Flows() {
       })
     }
   }, [selectedFlowId, selectedFlow])
+
+  useEffect(() => {
+    if (!selectedFlowId) {
+      setFlowRuns([])
+      return
+    }
+
+    api.getFlowRuns(selectedFlowId, 20)
+      .then((response) => {
+        if (response.success) {
+          setFlowRuns(response.data || [])
+        }
+      })
+      .catch(() => setFlowRuns([]))
+  }, [selectedFlowId, flows])
 
   const getStepColor = (type: WorkflowStep['type']) => {
     switch (type) {
@@ -131,16 +206,11 @@ export default function Flows() {
 
   const handleCreateFlow = async () => {
     try {
-      const steps: WorkflowStep[] = [
-        {
-          id: `step_${Date.now()}_1`,
-          name: 'Welcome Message',
-          type: 'agent_chat',
-          config: {
-            message: 'Welcome! We received your request and are preparing the next action.'
-          }
-        }
-      ]
+      const template = FLOW_TEMPLATES[newFlow.template as keyof typeof FLOW_TEMPLATES] || FLOW_TEMPLATES.welcome_and_route
+      const steps: WorkflowStep[] = template.steps.map((step, index) => ({
+        ...(step as any),
+        id: `step_${Date.now()}_${index + 1}`
+      }))
 
       const response = await api.createWorkflow({
         name: newFlow.name,
@@ -157,24 +227,29 @@ export default function Flows() {
       if (response.success) {
         await loadFlows()
         setShowCreateModal(false)
-        setNewFlow({ name: '', description: '', trigger: 'manual', schedule: '', event: '' })
+        setNewFlow({ name: '', description: '', template: 'welcome_and_route', trigger: 'manual', schedule: '', event: '' })
+        showToast('Flow created from template', 'success')
       }
     } catch (error) {
       console.error('Failed to create flow:', error)
-      alert('Failed to create flow. Please try again.')
+      showToast('Failed to create flow. Please try again.', 'error')
     }
   }
 
   const toggleFlowStatus = async (id: string) => {
     const flow = flows.find(f => f.id === id)
     if (!flow) return
+
+    const previous = flows
+    setFlows((current) => current.map((f) => f.id === id ? { ...f, isActive: !f.isActive } : f))
     
     try {
       await api.updateWorkflow(id, { isActive: !flow.isActive })
-      await loadFlows()
+      showToast(!flow.isActive ? 'Flow activated' : 'Flow paused', 'success')
     } catch (error) {
+      setFlows(previous)
       console.error('Failed to toggle flow status:', error)
-      alert('Failed to update flow status.')
+      showToast('Failed to update flow status.', 'error')
     }
   }
 
@@ -199,33 +274,49 @@ export default function Flows() {
           }))
         })
         await loadFlows()
+        showToast('Flow duplicated', 'success')
       } catch (error) {
         console.error('Failed to duplicate flow:', error)
-        alert('Failed to duplicate flow.')
+        showToast('Failed to duplicate flow.', 'error')
       }
     }
   }
 
-  const handleSaveFlowSteps = async (steps: WorkflowStep[]) => {
+  const handleSaveFlowSteps = async (steps: any[]) => {
     if (!selectedFlowId) return
-    await api.updateWorkflow(selectedFlowId, { steps })
+    const normalizedSteps = steps.map((step, index) => ({
+      ...step,
+      name: step.name || `Step ${index + 1}`
+    }))
+    await api.updateWorkflow(selectedFlowId, { steps: normalizedSteps })
     await loadFlows()
+    showToast('Flow steps saved', 'success')
   }
 
   const deleteFlow = async (id: string) => {
     if (confirm('Are you sure you want to delete this flow?')) {
+      const previous = flows
+      setFlows((current) => current.filter((f) => f.id !== id))
       try {
         await api.deleteWorkflow(id)
-        await loadFlows()
+        showToast('Flow deleted', 'success')
       } catch (error) {
+        setFlows(previous)
         console.error('Failed to delete flow:', error)
-        alert('Failed to delete flow.')
+        showToast('Failed to delete flow.', 'error')
       }
     }
   }
 
   return (
     <Layout>
+      {toast && (
+        <InlineToast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
       <div className="h-full flex flex-col">
         <div className="h-14 border-b border-slate-800 bg-[#0a101c] px-4 md:px-6 flex items-center justify-between">
           <div className="flex items-center gap-3 text-sm">
@@ -286,6 +377,27 @@ export default function Flows() {
                     This workflow has no steps yet.
                   </div>
                 )}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3 mb-4">
+              <h3 className="text-xs text-slate-400 mb-2">Execution History</h3>
+              <div className="space-y-2 max-h-52 overflow-y-auto">
+                {flowRuns.length === 0 ? (
+                  <div className="text-xs text-slate-500">No recent runs found for this flow.</div>
+                ) : flowRuns.map((run) => (
+                  <div key={run.id} className="rounded-md border border-slate-800 bg-slate-900 p-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className={run.status === 'success' ? 'text-emerald-300' : run.status === 'failed' ? 'text-rose-300' : 'text-amber-300'}>
+                        {(run.status || 'running').toUpperCase()}
+                      </span>
+                      <span className="text-slate-500">{run.trigger_type || 'manual'}</span>
+                    </div>
+                    <p className="mt-1 text-[11px] text-slate-400">
+                      {run.started_at ? new Date(run.started_at).toLocaleString() : 'Unknown start time'}
+                    </p>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
@@ -483,6 +595,22 @@ export default function Flows() {
                     rows={3}
                     placeholder="Describe what this flow does..."
                   />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Template</label>
+                  <select
+                    value={newFlow.template}
+                    onChange={(e) => setNewFlow({ ...newFlow, template: e.target.value })}
+                    className="w-full px-4 py-2 border border-slate-700 bg-slate-900 rounded-lg text-slate-200 focus:ring-2 focus:ring-cyan-500/40 outline-none"
+                  >
+                    {Object.entries(FLOW_TEMPLATES).map(([key, template]) => (
+                      <option key={key} value={key}>{template.label}</option>
+                    ))}
+                  </select>
+                  <p className="mt-2 text-xs text-slate-500">
+                    {FLOW_TEMPLATES[newFlow.template as keyof typeof FLOW_TEMPLATES]?.description}
+                  </p>
                 </div>
 
                 <div>

@@ -10,6 +10,7 @@ interface WorkflowStep {
 
 export class FlowExecutor {
   async executeFlow(flowId: string, context: Record<string, any> = {}) {
+    let runId: string | null = null
     try {
       // Fetch the flow
       const { data: flow, error } = await supabaseAdmin
@@ -28,17 +29,24 @@ export class FlowExecutor {
         return { success: true, message: 'No steps to execute' }
       }
 
-      // Increment run count (commented out due to type issues, will fix after schema sync)
-      // await supabaseAdmin
-      //   .from('flows')
-      //   .update({ run_count: ((flow as any).run_count || 0) + 1 } as any)
-      //   .eq('id', flowId)
+      runId = await this.logRunStart(flowId, context)
+
+      await supabaseAdmin
+        .from('flows')
+        .update({ run_count: ((flow as any).run_count || 0) + 1 } as any)
+        .eq('id', flowId)
 
       // Execute steps sequentially
-      const results = []
+      const results: any[] = []
       for (const step of steps) {
+        const startedAt = new Date().toISOString()
         const result = await this.executeStep(step, context)
+        const finishedAt = new Date().toISOString()
         results.push(result)
+
+        if (runId) {
+          await this.logStepResult(runId, step, result, startedAt, finishedAt)
+        }
         
         // If it's a condition and fails, stop execution
         if (step.type === 'condition' && !result.success) {
@@ -47,10 +55,77 @@ export class FlowExecutor {
         }
       }
 
-      return { success: true, results }
+      if (runId) {
+        await this.logRunComplete(runId, 'success', { results })
+      }
+
+      return { success: true, runId, results }
     } catch (error: any) {
       console.error('Flow execution error:', error)
-      return { success: false, error: error.message }
+      if (runId) {
+        await this.logRunComplete(runId, 'failed', { error: error.message })
+      }
+      return { success: false, runId, error: error.message }
+    }
+  }
+
+  private async logRunStart(flowId: string, context: Record<string, any>) {
+    try {
+      const { data } = await supabaseAdmin
+        .from('flow_runs')
+        .insert({
+          flow_id: flowId,
+          status: 'running',
+          trigger_type: context.triggerType || 'manual',
+          context,
+          started_at: new Date().toISOString()
+        } as any)
+        .select('id')
+        .single()
+
+      return data?.id || null
+    } catch {
+      return null
+    }
+  }
+
+  private async logStepResult(
+    runId: string,
+    step: WorkflowStep,
+    result: any,
+    startedAt: string,
+    finishedAt: string
+  ) {
+    try {
+      await supabaseAdmin
+        .from('flow_run_steps')
+        .insert({
+          run_id: runId,
+          step_id: step.id,
+          step_name: step.name,
+          step_type: step.type,
+          status: result?.success ? 'success' : 'failed',
+          result,
+          started_at: startedAt,
+          finished_at: finishedAt
+        } as any)
+    } catch {
+      // no-op if table is unavailable
+    }
+  }
+
+  private async logRunComplete(runId: string, status: 'success' | 'failed', summary: Record<string, any>) {
+    try {
+      await supabaseAdmin
+        .from('flow_runs')
+        .update({
+          status,
+          summary,
+          finished_at: new Date().toISOString()
+        } as any)
+        .eq('id', runId)
+    } catch {
+      // no-op if table is unavailable
     }
   }
 

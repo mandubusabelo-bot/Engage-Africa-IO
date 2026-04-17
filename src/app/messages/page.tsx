@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import Layout from '@/components/Layout'
 import { Search, Send, Paperclip, Smile, MoreVertical, Phone, Video, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -21,27 +21,28 @@ interface Message {
   time: string
 }
 
+const normalizePhone = (value?: string | null) => (value || '').trim().toLowerCase()
+
+const displayPhone = (value?: string | null) => (value || '').replace('@s.whatsapp.net', '').replace('@c.us', '')
+
 export default function Messages() {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [selectedConversation, setSelectedConversation] = useState<string>('')
   const [messages, setMessages] = useState<Message[]>([])
+  const [messagesByConversation, setMessagesByConversation] = useState<Record<string, any[]>>({})
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    loadMessages()
-  }, [])
-
-  const loadMessages = async () => {
+  const loadMessages = useCallback(async () => {
     try {
       setLoading(true)
       
       // Load contacts first to get names
-      const contactsMap = new Map()
+      const contactsMap = new Map<string, string>()
       try {
         const contactsRes = await api.getContacts()
         if (contactsRes.success && contactsRes.data) {
           contactsRes.data.forEach((c: any) => {
-            contactsMap.set(c.phone, c.name || c.phone.split('@')[0])
+            contactsMap.set(normalizePhone(c.phone), c.name || displayPhone(c.phone))
           })
         }
       } catch (contactsError) {
@@ -52,6 +53,7 @@ export default function Messages() {
       if (response.success && response.data) {
         // Group messages by phone number to create conversations
         const messagesByPhone: { [key: string]: any[] } = {}
+        const latestMessageNameByPhone = new Map<string, string>()
         
         response.data.forEach((msg: any) => {
           const phone = msg.phone || 'unknown'
@@ -59,14 +61,22 @@ export default function Messages() {
             messagesByPhone[phone] = []
           }
           messagesByPhone[phone].push(msg)
+
+          const normalized = normalizePhone(phone)
+          if (!latestMessageNameByPhone.has(normalized) && msg.name && msg.name.trim()) {
+            latestMessageNameByPhone.set(normalized, msg.name.trim())
+          }
         })
 
         // Create conversations from grouped messages
         const convos: Conversation[] = Object.entries(messagesByPhone).map(([phone, msgs]) => {
-          const lastMsg = msgs[msgs.length - 1]
+          const sortedMsgs = [...msgs].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+          const lastMsg = sortedMsgs[sortedMsgs.length - 1]
           // Get contact name or format phone
-          const contactName = contactsMap.get(phone)
-          const displayName = contactName || phone.replace('@s.whatsapp.net', '').replace('@c.us', '')
+          const normalizedPhone = normalizePhone(phone)
+          const contactName = contactsMap.get(normalizedPhone)
+          const messageName = latestMessageNameByPhone.get(normalizedPhone)
+          const displayName = contactName || messageName || displayPhone(phone)
           
           return {
             id: phone,
@@ -79,9 +89,14 @@ export default function Messages() {
         })
 
         setConversations(convos)
+        setMessagesByConversation(messagesByPhone)
         if (convos.length > 0 && !selectedConversation) {
           setSelectedConversation(convos[0].id)
           loadConversationMessages(convos[0].id, messagesByPhone[convos[0].id])
+        }
+
+        if (selectedConversation && messagesByPhone[selectedConversation]) {
+          loadConversationMessages(selectedConversation, messagesByPhone[selectedConversation])
         }
       }
     } catch (error) {
@@ -89,7 +104,11 @@ export default function Messages() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [selectedConversation])
+
+  useEffect(() => {
+    loadMessages()
+  }, [loadMessages])
 
   const loadConversationMessages = (phone: string, msgs: any[]) => {
     const formattedMessages: Message[] = msgs.map(msg => ({
@@ -157,7 +176,10 @@ export default function Messages() {
             {filteredConversations.map(conv => (
               <div
                 key={conv.id}
-                onClick={() => setSelectedConversation(conv.id)}
+                onClick={() => {
+                  setSelectedConversation(conv.id)
+                  loadConversationMessages(conv.id, messagesByConversation[conv.id] || [])
+                }}
                 className={`p-4 border-b border-slate-800 cursor-pointer hover:bg-slate-900 transition-colors ${
                   selectedConversation === conv.id ? 'bg-slate-900' : ''
                 }`}

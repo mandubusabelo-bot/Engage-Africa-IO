@@ -39,6 +39,17 @@ export const api = {
     return handleResponse(response)
   },
 
+  async deleteAgent(agentId: string) {
+    const token = await getToken()
+    const response = await fetch(`${API_URL}/agent-engine/${agentId}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    })
+    return handleResponse(response)
+  },
+
   async register(email: string, password: string, name: string) {
     const response = await fetch(`${API_URL}/auth/register`, {
       method: 'POST',
@@ -232,6 +243,19 @@ export const api = {
     return handleResponse(response)
   },
 
+  async createContact(data: any) {
+    const token = await getToken()
+    const response = await fetch(`${API_URL}/contacts`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(data)
+    })
+    return handleResponse(response)
+  },
+
   async getContact(id: string) {
     const token = await getToken()
     const response = await fetch(`${API_URL}/contacts/${id}`, {
@@ -331,6 +355,13 @@ export const api = {
 
   async getWebhookUrl(flowId: string) {
     const response = await fetch(`${API_URL}/webhooks/flow/${flowId}`, {
+      headers: { 'Authorization': `Bearer ${await getToken()}` }
+    })
+    return handleResponse(response)
+  },
+
+  async getFlowRuns(flowId: string, limit = 20) {
+    const response = await fetch(`${API_URL}/flows/${flowId}/runs?limit=${limit}`, {
       headers: { 'Authorization': `Bearer ${await getToken()}` }
     })
     return handleResponse(response)

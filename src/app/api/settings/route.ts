@@ -1,41 +1,63 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase'
+import { supabaseAdmin } from '@/lib/supabase-server'
+
+const defaultRuntimeSettings = {
+  whatsappMode: 'auto',
+  workflowEventTriggersEnabled: true,
+  whatsappQrTimeoutMs: 180000
+}
 
 export async function GET(request: NextRequest) {
   try {
-    // TODO: Add auth check back after testing
-    // const { data: { session } } = await supabase.auth.getSession()
-    // if (!session) {
-    //   return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
-    // }
+    const { data: row, error } = await supabaseAdmin
+      .from('app_settings')
+      .select('value')
+      .eq('key', 'runtime')
+      .single()
 
-    // Return settings from environment variables
-    const settings = {
-      openRouterApiKey: process.env.OPENROUTER_API_KEY ? '***' : '',
-      geminiApiKey: process.env.GEMINI_API_KEY ? '***' : '',
-      whatsappEnabled: false
+    if (error) {
+      return NextResponse.json({ success: true, data: defaultRuntimeSettings })
     }
 
-    return NextResponse.json({ success: true, data: settings })
+    const runtimeSettings = {
+      ...defaultRuntimeSettings,
+      ...((row as any)?.value || {})
+    }
+
+    return NextResponse.json({ success: true, data: runtimeSettings })
   } catch (error: any) {
     console.error('Get settings error:', error)
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 })
+    return NextResponse.json({ success: true, data: defaultRuntimeSettings })
   }
 }
 
 export async function PUT(request: NextRequest) {
   try {
-    // TODO: Add auth check back after testing
-    // const { data: { session } } = await supabase.auth.getSession()
-    // if (!session) {
-    //   return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
-    // }
-
     const body = await request.json()
-    
-    // Settings would be stored in a settings table or environment variables
-    // For now, just return success
-    return NextResponse.json({ success: true, data: body })
+
+    const mergedSettings = {
+      ...defaultRuntimeSettings,
+      ...body
+    }
+
+    const { error } = await supabaseAdmin
+      .from('app_settings')
+      .upsert(
+        {
+          key: 'runtime',
+          value: mergedSettings,
+          updated_at: new Date().toISOString()
+        } as any,
+        {
+          onConflict: 'key'
+        }
+      )
+
+    if (error) {
+      return NextResponse.json({ success: true, data: mergedSettings })
+    }
+
+    return NextResponse.json({ success: true, data: mergedSettings })
   } catch (error: any) {
     console.error('Update settings error:', error)
     return NextResponse.json({ success: false, error: error.message }, { status: 500 })

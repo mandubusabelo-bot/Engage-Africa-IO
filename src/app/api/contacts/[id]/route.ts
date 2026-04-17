@@ -6,17 +6,17 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const { data: agent, error } = await supabaseAdmin
-      .from('agents')
+    const { data: contact, error } = await supabaseAdmin
+      .from('contacts')
       .select('*')
       .eq('id', params.id)
       .single()
 
     if (error) throw error
 
-    return NextResponse.json({ success: true, data: agent })
+    return NextResponse.json({ success: true, data: contact })
   } catch (error: any) {
-    console.error('Get agent error:', error)
+    console.error('Get contact error:', error)
     return NextResponse.json({ success: false, error: error.message }, { status: 500 })
   }
 }
@@ -28,21 +28,21 @@ export async function PUT(
   try {
     const updates = await request.json()
 
-    const { data: agent, error } = await supabaseAdmin
-      .from('agents')
+    const { data: contact, error } = await supabaseAdmin
+      .from('contacts')
       .update({
         ...updates,
         updated_at: new Date().toISOString()
       })
       .eq('id', params.id)
-      .select()
+      .select('*')
       .single()
 
     if (error) throw error
 
-    return NextResponse.json({ success: true, data: agent })
+    return NextResponse.json({ success: true, data: contact })
   } catch (error: any) {
-    console.error('Update agent error:', error)
+    console.error('Update contact error:', error)
     return NextResponse.json({ success: false, error: error.message }, { status: 500 })
   }
 }
@@ -53,15 +53,15 @@ export async function DELETE(
 ) {
   try {
     const { error } = await supabaseAdmin
-      .from('agents')
+      .from('contacts')
       .delete()
       .eq('id', params.id)
 
     if (error) throw error
 
-    return NextResponse.json({ success: true, message: 'Agent deleted' })
+    return NextResponse.json({ success: true, message: 'Contact deleted' })
   } catch (error: any) {
-    console.error('Delete agent error:', error)
+    console.error('Delete contact error:', error)
     return NextResponse.json({ success: false, error: error.message }, { status: 500 })
   }
 }
