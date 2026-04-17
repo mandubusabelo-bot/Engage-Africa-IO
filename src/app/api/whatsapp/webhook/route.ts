@@ -20,11 +20,10 @@ export async function POST(request: NextRequest) {
       if (!fromMe && message && text) {
         // Save message to database
         const { error: insertError } = await (supabaseAdmin.from('messages') as any).insert({
-          agent_id: null, // Will be determined by flow
+          agent_id: null,
           content: text,
           sender: 'user',
-          phone: message,
-          name: message.split('@')[0]
+          phone: message
         })
 
         if (insertError) {

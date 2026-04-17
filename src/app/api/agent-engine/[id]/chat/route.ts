@@ -7,6 +7,7 @@ export async function POST(
 ) {
   try {
     const { message, conversationId, phone } = await request.json()
+    console.log(`[AgentChat] Request received for agent ${params.id}:`, { message, phone })
 
     // Get agent configuration
     const { data: agent, error: agentError } = await supabaseAdmin
@@ -16,10 +17,11 @@ export async function POST(
       .single()
 
     if (agentError || !agent) {
+      console.error('[AgentChat] Agent not found:', agentError)
       return NextResponse.json({ success: false, error: 'Agent not found' }, { status: 404 })
     }
 
-    console.log(`[AgentChat] Agent ${params.id} received: ${message}`)
+    console.log(`[AgentChat] Using agent: ${agent.name}`)
 
     // Call AI service (OpenRouter or Gemini)
     let aiResponse = ''
