@@ -49,6 +49,9 @@ const NODE_TYPES: NodeTypes = {
   delay: DelayNode,
   webhook: WebhookNode,
   notification: NotificationNode,
+  generate_payment: GeneratePaymentNode,
+  send_payment_link: SendPaymentLinkNode,
+  payment_result: PaymentResultNode,
 }
 
 // Custom Node Components with Connection Handles
@@ -189,13 +192,80 @@ function NotificationNode({ data, selected }: { data: any; selected?: boolean })
   )
 }
 
+function GeneratePaymentNode({ data, selected }: { data: any; selected?: boolean }) {
+  return (
+    <div className={`bg-slate-800 border-2 rounded-xl p-4 w-64 transition-all ${
+      selected ? 'border-emerald-500 shadow-lg shadow-emerald-500/20' : 'border-emerald-500/40'
+    }`}>
+      <Handle type="target" position={Position.Top} className="w-3 h-3 bg-emerald-500" />
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center">
+          <ShoppingCart size={20} className="text-emerald-400" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h4 className="font-semibold text-white">{data.label}</h4>
+          <p className="text-xs text-slate-400">PayFast Payment</p>
+        </div>
+      </div>
+      <Handle type="source" position={Position.Bottom} id="success" className="w-3 h-3 bg-emerald-500" style={{ left: '30%' }} />
+      <Handle type="source" position={Position.Bottom} id="failed" className="w-3 h-3 bg-red-500" style={{ left: '70%' }} />
+    </div>
+  )
+}
+
+function SendPaymentLinkNode({ data, selected }: { data: any; selected?: boolean }) {
+  return (
+    <div className={`bg-slate-800 border-2 rounded-xl p-4 w-64 transition-all ${
+      selected ? 'border-cyan-500 shadow-lg shadow-cyan-500/20' : 'border-cyan-500/40'
+    }`}>
+      <Handle type="target" position={Position.Top} className="w-3 h-3 bg-cyan-500" />
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-lg bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center">
+          <MessageSquare size={20} className="text-cyan-400" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h4 className="font-semibold text-white">{data.label}</h4>
+          <p className="text-xs text-amber-400">⏳ Waiting for payment...</p>
+        </div>
+      </div>
+      <Handle type="source" position={Position.Bottom} className="w-3 h-3 bg-cyan-500" />
+    </div>
+  )
+}
+
+function PaymentResultNode({ data, selected }: { data: any; selected?: boolean }) {
+  return (
+    <div className={`bg-slate-800 border-2 rounded-xl p-4 w-64 transition-all ${
+      selected ? 'border-purple-500 shadow-lg shadow-purple-500/20' : 'border-purple-500/40'
+    }`}>
+      <Handle type="target" position={Position.Top} className="w-3 h-3 bg-purple-500" />
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-lg bg-purple-500/20 border border-purple-500/40 flex items-center justify-center">
+          <Play size={20} className="text-purple-400" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h4 className="font-semibold text-white">{data.label}</h4>
+          <p className="text-xs text-slate-400">Payment Webhook</p>
+        </div>
+      </div>
+      <Handle type="source" position={Position.Bottom} id="paid" className="w-3 h-3 bg-emerald-500" style={{ left: '20%' }} />
+      <Handle type="source" position={Position.Bottom} id="failed" className="w-3 h-3 bg-red-500" style={{ left: '40%' }} />
+      <Handle type="source" position={Position.Bottom} id="cancelled" className="w-3 h-3 bg-amber-500" style={{ left: '60%' }} />
+      <Handle type="source" position={Position.Bottom} id="expired" className="w-3 h-3 bg-slate-500" style={{ left: '80%' }} />
+    </div>
+  )
+}
+
 const STEP_TYPES = [
   { type: 'trigger', label: 'Trigger', icon: Play, color: 'emerald', category: 'Start' },
   { type: 'agent_chat', label: 'Agent Chat', icon: Bot, color: 'cyan', category: 'Actions' },
   { type: 'condition', label: 'Condition', icon: GitBranch, color: 'purple', category: 'Logic' },
   { type: 'delay', label: 'Delay', icon: Clock, color: 'amber', category: 'Logic' },
   { type: 'webhook', label: 'Webhook', icon: Webhook, color: 'blue', category: 'Actions' },
-  { type: 'notification', label: 'Notification', icon: MessageSquare, color: 'green', category: 'Actions' }
+  { type: 'notification', label: 'Notification', icon: MessageSquare, color: 'green', category: 'Actions' },
+  { type: 'generate_payment', label: 'Generate Payment', icon: ShoppingCart, color: 'emerald', category: 'Commerce' },
+  { type: 'send_payment_link', label: 'Send Payment Link', icon: MessageSquare, color: 'cyan', category: 'Commerce' },
+  { type: 'payment_result', label: 'Payment Result', icon: Play, color: 'purple', category: 'Commerce' }
 ] as const
 
 // Main Flow Canvas Component (internal)

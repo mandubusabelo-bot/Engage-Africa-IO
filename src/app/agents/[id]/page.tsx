@@ -7,7 +7,7 @@ import {
   Bot, BookOpen, Plus, Trash2, Save, ArrowLeft, Power, 
   MessageSquare, Settings, Sparkles, Play, X, ChevronDown,
   RefreshCw, TestTube, Variable, Clock, User, Brain,
-  Shield, AlertCircle, CheckCircle, Sliders
+  Shield, AlertCircle, CheckCircle, Sliders, ShoppingCart
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import InlineToast from '@/components/InlineToast'
@@ -58,7 +58,7 @@ export default function AgentDetail() {
   const [saving, setSaving] = useState(false)
   
   // Tab state - expanded tabs
-  const [activeTab, setActiveTab] = useState<'identity' | 'actions' | 'knowledge' | 'memory' | 'behavior' | 'rules'>('identity')
+  const [activeTab, setActiveTab] = useState<'identity' | 'actions' | 'knowledge' | 'memory' | 'behavior' | 'rules' | 'commerce'>('identity')
   
   // Modal states
   const [showAddKnowledge, setShowAddKnowledge] = useState(false)
@@ -441,6 +441,15 @@ export default function AgentDetail() {
                   rule_limit_emojis: agent.rule_limit_emojis,
                   rule_concise: agent.rule_concise,
                   custom_rules: agent.custom_rules,
+                  // Commerce & Payments
+                  auto_update_contact_email: agent.auto_update_contact_email,
+                  auto_update_contact_phone: agent.auto_update_contact_phone,
+                  auto_update_contact_address: agent.auto_update_contact_address,
+                  order_expiry_minutes: agent.order_expiry_minutes,
+                  allow_resend_payment_link: agent.allow_resend_payment_link,
+                  payment_link_template: agent.payment_link_template,
+                  order_confirmed_template: agent.order_confirmed_template,
+                  payment_failed_template: agent.payment_failed_template,
                   is_active: agent.is_active
                 })
                 setSaving(false)
@@ -474,6 +483,7 @@ export default function AgentDetail() {
             { id: 'memory', label: 'Memory', icon: Brain },
             { id: 'behavior', label: 'Behavior', icon: Sliders },
             { id: 'rules', label: 'Rules', icon: Shield },
+            { id: 'commerce', label: 'Commerce & Payments', icon: ShoppingCart },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -1369,6 +1379,176 @@ export default function AgentDetail() {
                     rows={6}
                     className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-cyan-500 font-mono text-sm"
                     placeholder="- NEVER mention competitors&#10;- ALWAYS ask for phone number before pricing&#10;- If user is angry, escalate to human immediately"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* COMMERCE & PAYMENTS TAB */}
+        {activeTab === 'commerce' && (
+          <div className="space-y-6">
+            {/* Contact Auto-Update Settings */}
+            <div className="bg-slate-900 rounded-xl p-6 border border-slate-800">
+              <div className="flex items-center gap-2 mb-4">
+                <User className="text-cyan-400" size={20} />
+                <h3 className="text-lg font-semibold text-white">Contact Auto-Update</h3>
+              </div>
+              <p className="text-sm text-slate-400 mb-4">
+                Automatically update contact information when customers provide details during conversations.
+              </p>
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between py-3 border-b border-slate-800">
+                  <div>
+                    <label className="text-sm font-medium text-slate-300">Auto-update email addresses</label>
+                    <p className="text-xs text-slate-500">Save email when customer provides it</p>
+                  </div>
+                  <button
+                    onClick={() => handleUpdateAgent({ auto_update_contact_email: !agent.auto_update_contact_email })}
+                    className={`relative w-12 h-6 rounded-full transition-colors ${
+                      (agent.auto_update_contact_email ?? true) ? 'bg-cyan-500' : 'bg-slate-700'
+                    }`}
+                  >
+                    <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                      (agent.auto_update_contact_email ?? true) ? 'translate-x-6' : ''
+                    }`} />
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between py-3 border-b border-slate-800">
+                  <div>
+                    <label className="text-sm font-medium text-slate-300">Auto-update phone numbers</label>
+                    <p className="text-xs text-slate-500">Save alternative phone when provided</p>
+                  </div>
+                  <button
+                    onClick={() => handleUpdateAgent({ auto_update_contact_phone: !agent.auto_update_contact_phone })}
+                    className={`relative w-12 h-6 rounded-full transition-colors ${
+                      (agent.auto_update_contact_phone ?? true) ? 'bg-cyan-500' : 'bg-slate-700'
+                    }`}
+                  >
+                    <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                      (agent.auto_update_contact_phone ?? true) ? 'translate-x-6' : ''
+                    }`} />
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between py-3">
+                  <div>
+                    <label className="text-sm font-medium text-slate-300">Auto-update delivery addresses</label>
+                    <p className="text-xs text-slate-500">Save address when customer provides it for orders</p>
+                  </div>
+                  <button
+                    onClick={() => handleUpdateAgent({ auto_update_contact_address: !agent.auto_update_contact_address })}
+                    className={`relative w-12 h-6 rounded-full transition-colors ${
+                      (agent.auto_update_contact_address ?? true) ? 'bg-cyan-500' : 'bg-slate-700'
+                    }`}
+                  >
+                    <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                      (agent.auto_update_contact_address ?? true) ? 'translate-x-6' : ''
+                    }`} />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Payment Settings */}
+            <div className="bg-slate-900 rounded-xl p-6 border border-slate-800">
+              <div className="flex items-center gap-2 mb-4">
+                <ShoppingCart className="text-cyan-400" size={20} />
+                <h3 className="text-lg font-semibold text-white">Payment & Order Settings</h3>
+              </div>
+
+              <div className="space-y-4">
+                {/* Order Expiry */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Payment link expiry (minutes)
+                  </label>
+                  <input
+                    type="number"
+                    value={agent.order_expiry_minutes || 30}
+                    onChange={(e) => setAgent({ ...agent, order_expiry_minutes: parseInt(e.target.value) })}
+                    onBlur={() => handleUpdateAgent({ order_expiry_minutes: agent.order_expiry_minutes })}
+                    min="5"
+                    max="120"
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-cyan-500"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    Pending orders will be cancelled after this time if not paid
+                  </p>
+                </div>
+
+                {/* Allow Resend */}
+                <div className="flex items-center justify-between py-3 border-t border-slate-800">
+                  <div>
+                    <label className="text-sm font-medium text-slate-300">Allow payment link resend</label>
+                    <p className="text-xs text-slate-500">Let agent resend payment link if it fails or expires</p>
+                  </div>
+                  <button
+                    onClick={() => handleUpdateAgent({ allow_resend_payment_link: !agent.allow_resend_payment_link })}
+                    className={`relative w-12 h-6 rounded-full transition-colors ${
+                      (agent.allow_resend_payment_link ?? true) ? 'bg-cyan-500' : 'bg-slate-700'
+                    }`}
+                  >
+                    <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                      (agent.allow_resend_payment_link ?? true) ? 'translate-x-6' : ''
+                    }`} />
+                  </button>
+                </div>
+
+                {/* Payment Link Template */}
+                <div className="pt-4 border-t border-slate-800">
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Payment link message template
+                  </label>
+                  <p className="text-xs text-slate-500 mb-2">
+                    Message sent to customer with payment link. Variables: {{orderId}}, {{paymentUrl}}, {{totalAmount}}, {{items}}
+                  </p>
+                  <textarea
+                    value={agent.payment_link_template || ''}
+                    onChange={(e) => setAgent({ ...agent, payment_link_template: e.target.value })}
+                    onBlur={() => handleUpdateAgent({ payment_link_template: agent.payment_link_template })}
+                    rows={8}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-cyan-500 font-mono text-sm"
+                    placeholder="Here is your secure payment link for Order #{{orderId}}:&#10;{{paymentUrl}}&#10;&#10;Total: R{{totalAmount}}&#10;&#10;This link is valid for 30 minutes. 🔒"
+                  />
+                </div>
+
+                {/* Order Confirmed Template */}
+                <div className="pt-4 border-t border-slate-800">
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Order confirmed message template
+                  </label>
+                  <p className="text-xs text-slate-500 mb-2">
+                    Message sent after payment is confirmed. Variables: {{orderId}}, {{totalAmount}}, {{deliveryAddress.*}}
+                  </p>
+                  <textarea
+                    value={agent.order_confirmed_template || ''}
+                    onChange={(e) => setAgent({ ...agent, order_confirmed_template: e.target.value })}
+                    onBlur={() => handleUpdateAgent({ order_confirmed_template: agent.order_confirmed_template })}
+                    rows={6}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-cyan-500 font-mono text-sm"
+                    placeholder="Your payment is confirmed! 🎉&#10;&#10;Order #{{orderId}} has been sent to our dispatch team.&#10;We'll be in touch with tracking info. Thank you!"
+                  />
+                </div>
+
+                {/* Payment Failed Template */}
+                <div className="pt-4 border-t border-slate-800">
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Payment failed message template
+                  </label>
+                  <p className="text-xs text-slate-500 mb-2">
+                    Message sent when payment fails or is cancelled
+                  </p>
+                  <textarea
+                    value={agent.payment_failed_template || ''}
+                    onChange={(e) => setAgent({ ...agent, payment_failed_template: e.target.value })}
+                    onBlur={() => handleUpdateAgent({ payment_failed_template: agent.payment_failed_template })}
+                    rows={4}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-cyan-500 font-mono text-sm"
+                    placeholder="Your payment didn't go through. Would you like me to send you the payment link again?"
                   />
                 </div>
               </div>
