@@ -86,15 +86,25 @@ export class EventSystem {
   // Default agent response when no flows are configured
   private async executeDefaultAgentResponse(data: any) {
     try {
-      // Get first active agent
-      const { data: agents, error } = await supabaseAdmin
+      // Get first agent (try is_active=true first, then any agent)
+      let { data: agents, error } = await supabaseAdmin
         .from('agents')
         .select('*')
         .eq('is_active', true)
         .limit(1)
       
+      // If no active agents, try any agent
+      if (!agents || agents.length === 0) {
+        const result = await supabaseAdmin
+          .from('agents')
+          .select('*')
+          .limit(1)
+        agents = result.data
+        error = result.error
+      }
+      
       if (error || !agents || agents.length === 0) {
-        console.log('[EventSystem] No active agents found for default response')
+        console.log('[EventSystem] No agents found for default response')
         return
       }
       
