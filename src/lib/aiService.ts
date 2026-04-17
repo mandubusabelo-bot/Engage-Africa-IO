@@ -1,5 +1,38 @@
 import { supabaseAdmin } from './supabase-server'
 
+// Retrieve knowledge base content for an agent
+async function getKnowledgeBaseContext(agentId: string | null): Promise<string | null> {
+  if (!agentId) return null
+  
+  try {
+    const { data: kb } = await supabaseAdmin
+      .from('knowledge_base')
+      .select('content')
+      .eq('agent_id', agentId)
+      .limit(3)
+    
+    if (kb && kb.length > 0) {
+      return `Use this knowledge to answer questions:\n${kb.map((k: any) => k.content).join('\n\n')}`
+    }
+    
+    // Try global knowledge base if no agent-specific KB
+    const { data: globalKb } = await supabaseAdmin
+      .from('knowledge_base')
+      .select('content')
+      .is('agent_id', null)
+      .limit(3)
+    
+    if (globalKb && globalKb.length > 0) {
+      return `Use this knowledge to answer questions:\n${globalKb.map((k: any) => k.content).join('\n\n')}`
+    }
+    
+    return null
+  } catch (err) {
+    console.error('[KB] Error fetching knowledge base:', err)
+    return null
+  }
+}
+
 export async function getAIResponse(message: string, systemPrompt: string): Promise<string> {
   // Try OpenRouter first
   const openrouterKey = process.env.OPENROUTER_API_KEY
@@ -94,17 +127,22 @@ export async function handleIncomingWhatsApp(phone: string, message: string, pus
 
   if (!contact) {
     // Create new contact
-    const { data: newContact } = await supabaseAdmin
+    const contactName = pushName || phone.split('@')[0]
+    const { data: newContacts, error: insertError } = await supabaseAdmin
       .from('contacts')
       .insert({
         phone,
-        name: pushName || phone.split('@')[0],
+        name: contactName,
         last_message_at: new Date().toISOString()
       })
       .select()
-      .single()
-    contact = newContact
-    console.log(`[AI Handler] New contact created: ${contact?.name}`)
+    
+    if (insertError) {
+      console.error('[AI Handler] Failed to create contact:', insertError)
+    }
+    
+    contact = newContacts?.[0] || { name: contactName, phone }
+    console.log(`[AI Handler] New contact created: ${contact.name}`)
   } else {
     // Update last message time and name if provided
     await supabaseAdmin
@@ -149,14 +187,21 @@ export async function handleIncomingWhatsApp(phone: string, message: string, pus
     }
   }
 
-  const systemPrompt = agent?.system_prompt || 'You are a helpful AI assistant for Engage Africa. Be friendly, concise, and helpful.'
+  // Build contextual system prompt with knowledge base
+  let systemPrompt = agent?.system_prompt || 'You are a helpful AI assistant. Be friendly, concise, and helpful.'
   const agentName = agent?.name || 'AI Assistant'
   const contactName = contact?.name || phone.split('@')[0]
+  
+  // Add knowledge base context if available
+  const knowledgeBase = await getKnowledgeBaseContext(agent?.id)
+  if (knowledgeBase) {
+    systemPrompt = `${systemPrompt}\n\n${knowledgeBase}`
+  }
 
   console.log(`[AI Handler] Using agent: ${agentName} for contact: ${contactName}`)
 
-  // Generate AI response with contact name context
-  const contextualPrompt = `${systemPrompt}\n\nYou are speaking with ${contactName}.`
+  // Generate AI response with contact name and knowledge context
+  const contextualPrompt = `${systemPrompt}\n\nYou are speaking with ${contactName}. Be helpful and professional.`
   const aiResponse = await getAIResponse(message, contextualPrompt)
   console.log(`[AI Handler] AI response: ${aiResponse.slice(0, 100)}...`)
 

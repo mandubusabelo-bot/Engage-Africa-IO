@@ -215,6 +215,36 @@ export const api = {
     return handleResponse(response)
   },
 
+  // Contacts
+  async getContacts() {
+    const token = await getToken()
+    const response = await fetch(`${API_URL}/contacts`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+    return handleResponse(response)
+  },
+
+  async getContact(id: string) {
+    const token = await getToken()
+    const response = await fetch(`${API_URL}/contacts/${id}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+    return handleResponse(response)
+  },
+
+  async updateContact(id: string, data: any) {
+    const token = await getToken()
+    const response = await fetch(`${API_URL}/contacts/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(data)
+    })
+    return handleResponse(response)
+  },
+
   // Analytics
   async getAnalytics(startDate?: string, endDate?: string) {
     const params = new URLSearchParams()

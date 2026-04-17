@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard,
   MessageSquare,
+  Users,
   Bot,
   Workflow,
   BarChart3,
@@ -63,6 +64,7 @@ export default function Layout({ children }: LayoutProps) {
   const navItems = [
     { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/messages', icon: MessageSquare, label: 'Messages' },
+    { path: '/contacts', icon: Users, label: 'Contacts' },
     { path: '/agents', icon: Bot, label: 'Agents' },
     { path: '/flows', icon: Workflow, label: 'Flows' },
     { path: '/analytics', icon: BarChart3, label: 'Analytics' },
