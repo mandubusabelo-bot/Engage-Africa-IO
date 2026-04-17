@@ -1504,7 +1504,7 @@ export default function AgentDetail() {
                     Payment link message template
                   </label>
                   <p className="text-xs text-slate-500 mb-2">
-                    Message sent to customer with payment link. Variables: {{'{'}orderId{'}'}}, {{'{'}paymentUrl{'}'}}, {{'{'}totalAmount{'}'}}, {{'{'}items{'}'}}
+                    Message sent to customer with payment link. Variables: {'{orderId}'}, {'{paymentUrl}'}, {'{totalAmount}'}, {'{items}'}
                   </p>
                   <textarea
                     value={agent.payment_link_template || ''}
@@ -1512,7 +1512,7 @@ export default function AgentDetail() {
                     onBlur={() => handleUpdateAgent({ payment_link_template: agent.payment_link_template })}
                     rows={8}
                     className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-cyan-500 font-mono text-sm"
-                    placeholder="Here is your secure payment link for Order #{{'{'}orderId{'}'}}:&#10;{{'{'}paymentUrl{'}'}}&#10;&#10;Total: R{{'{'}totalAmount{'}'}}&#10;&#10;This link is valid for 30 minutes. 🔒"
+                    placeholder={"Here is your secure payment link for Order #{orderId}:\n{paymentUrl}\n\nTotal: R{totalAmount}\n\nThis link is valid for 30 minutes. 🔒"}
                   />
                 </div>
 
@@ -1522,7 +1522,7 @@ export default function AgentDetail() {
                     Order confirmed message template
                   </label>
                   <p className="text-xs text-slate-500 mb-2">
-                    Message sent after payment is confirmed. Variables: {{'{'}orderId{'}'}}, {{'{'}totalAmount{'}'}}, {{'{'}deliveryAddress.*{'}'}}
+                    Message sent after payment is confirmed. Variables: {'{orderId}'}, {'{totalAmount}'}, {'{deliveryAddress.*}'}
                   </p>
                   <textarea
                     value={agent.order_confirmed_template || ''}
@@ -1530,7 +1530,7 @@ export default function AgentDetail() {
                     onBlur={() => handleUpdateAgent({ order_confirmed_template: agent.order_confirmed_template })}
                     rows={6}
                     className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-cyan-500 font-mono text-sm"
-                    placeholder="Your payment is confirmed! 🎉&#10;&#10;Order #{{'{'}orderId{'}'}} has been sent to our dispatch team.&#10;We'll be in touch with tracking info. Thank you!"
+                    placeholder={"Your payment is confirmed! 🎉\n\nOrder #{orderId} has been sent to our dispatch team.\nWe'll be in touch with tracking info. Thank you!"}
                   />
                 </div>
 
