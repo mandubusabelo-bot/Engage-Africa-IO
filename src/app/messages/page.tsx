@@ -257,7 +257,7 @@ export default function Messages() {
                   className={`max-w-md px-4 py-2 rounded-lg ${
                     message.sender === 'user'
                       ? 'bg-cyan-500 text-slate-950'
-                      : 'bg-slate-900 border border-slate-800 text-slate-100'
+                      : 'bg-emerald-600 text-white'
                   }`}
                 >
                   <p>{message.text}</p>

@@ -402,6 +402,41 @@ export default function AgentDetail() {
               Test Agent
             </button>
             <button
+              onClick={() => {
+                handleUpdateAgent({
+                  name: agent.name,
+                  description: agent.description,
+                  system_prompt: agent.system_prompt,
+                  agent_name: agent.agent_name,
+                  greeting_message: agent.greeting_message,
+                  fallback_message: agent.fallback_message,
+                  never_say: agent.never_say,
+                  tone: agent.tone,
+                  max_response_length: agent.max_response_length,
+                  response_language: agent.response_language,
+                  unknown_answer_action: agent.unknown_answer_action,
+                  ask_one_question: agent.ask_one_question,
+                  confirm_before_closing: agent.confirm_before_closing,
+                  inactivity_timeout_message: agent.inactivity_timeout_message,
+                  suppress_intro_returning: agent.suppress_intro_returning,
+                  returning_contact_message: agent.returning_contact_message,
+                  returning_contact_window_hours: agent.returning_contact_window_hours,
+                  remember_last_topic: agent.remember_last_topic,
+                  inject_summary_on_reassign: agent.inject_summary_on_reassign,
+                  remember_contact_name: agent.remember_contact_name,
+                  remember_last_product: agent.remember_last_product,
+                  remember_open_issues: agent.remember_open_issues,
+                  max_context_turns: agent.max_context_turns,
+                  follow_up_behavior: agent.follow_up_behavior
+                })
+              }}
+              disabled={saving}
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-700 text-white rounded-lg font-medium transition-colors"
+            >
+              <Save size={18} />
+              {saving ? 'Saving...' : 'Save All'}
+            </button>
+            <button
               onClick={() => handleUpdateAgent({ is_active: !agent.is_active })}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
                 agent.is_active
@@ -487,6 +522,10 @@ export default function AgentDetail() {
                     </span>
                     <span className="text-slate-500">Min 6 rows</span>
                   </div>
+                  <p className="text-xs text-amber-400 mt-2 flex items-center gap-1">
+                    <AlertCircle size={12} />
+                    Note: If the agent uses too many emojis (like 🌿🌱🍃), explicitly tell it: &quot;Do not use plant or nature emojis in responses unless specifically relevant to the conversation.&quot;
+                  </p>
                 </div>
 
                 {/* Tone Selector */}
@@ -1443,7 +1482,7 @@ function AgentTestDrawer({ agent, onClose }: { agent: any; onClose: () => void }
                   <div className={`max-w-[80%] rounded-lg px-4 py-2 ${
                     msg.role === 'user'
                       ? 'bg-cyan-500 text-slate-950'
-                      : 'bg-slate-800 border border-slate-700 text-white'
+                      : 'bg-emerald-600 text-white'
                   }`}>
                     <p className="text-sm">{msg.content}</p>
                     {msg.source && (
