@@ -3,20 +3,26 @@ import { supabaseAdmin } from '@/lib/supabase-server'
 
 export async function GET(request: NextRequest) {
   try {
-    const { data: contacts, error } = await supabaseAdmin
+    // Get all contacts
+    const { data: contacts, error: contactsError } = await supabaseAdmin
       .from('contacts')
-      .select(`
-        *,
-        agents:assigned_agent_id (name)
-      `)
-      .order('last_message_at', { ascending: false })
+      .select('*')
+      .order('last_message_at', { ascending: false, nullsFirst: false })
 
-    if (error) throw error
+    if (contactsError) throw contactsError
+
+    // Get all agents to map names
+    const { data: agents } = await supabaseAdmin
+      .from('agents')
+      .select('id, name')
+
+    // Create agent map
+    const agentMap = new Map(agents?.map(a => [a.id, a.name]) || [])
 
     // Transform to include agent name
     const transformed = contacts?.map((c: any) => ({
       ...c,
-      assigned_agent_name: c.agents?.name || null
+      assigned_agent_name: c.assigned_agent_id ? agentMap.get(c.assigned_agent_id) : null
     })) || []
 
     return NextResponse.json({ success: true, data: transformed })
