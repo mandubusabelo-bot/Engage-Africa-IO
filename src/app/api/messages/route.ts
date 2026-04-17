@@ -74,3 +74,26 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 })
   }
 }
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url)
+    const phone = searchParams.get('phone')
+
+    if (!phone) {
+      return NextResponse.json({ success: false, error: 'Phone number required' }, { status: 400 })
+    }
+
+    const { error } = await supabaseAdmin
+      .from('messages')
+      .delete()
+      .eq('phone', phone)
+
+    if (error) throw error
+
+    return NextResponse.json({ success: true, message: 'Messages deleted' })
+  } catch (error: any) {
+    console.error('Delete messages error:', error)
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 })
+  }
+}

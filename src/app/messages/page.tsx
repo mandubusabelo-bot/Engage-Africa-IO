@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Layout from '@/components/Layout'
-import { Search, Send, Paperclip, Smile, MoreVertical, Phone, Video } from 'lucide-react'
+import { Search, Send, Paperclip, Smile, MoreVertical, Phone, Video, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
 
 interface Conversation {
@@ -34,6 +34,16 @@ export default function Messages() {
   const loadMessages = async () => {
     try {
       setLoading(true)
+      
+      // Load contacts first to get names
+      const contactsRes = await api.getContacts()
+      const contactsMap = new Map()
+      if (contactsRes.success && contactsRes.data) {
+        contactsRes.data.forEach((c: any) => {
+          contactsMap.set(c.phone, c.name || c.phone.split('@')[0])
+        })
+      }
+      
       const response = await api.getMessages()
       if (response.success && response.data) {
         // Group messages by phone number to create conversations
@@ -50,17 +60,17 @@ export default function Messages() {
         // Create conversations from grouped messages
         const convos: Conversation[] = Object.entries(messagesByPhone).map(([phone, msgs]) => {
           const lastMsg = msgs[msgs.length - 1]
-          // Format phone number for display
-          const formattedPhone = phone.replace('@c.us', '').replace(/^\d+/, (match) => 
-            match.length > 10 ? `+${match.substring(0, match.length - 10)} ${match.substring(match.length - 10)}` : match
-          )
+          // Get contact name or format phone
+          const contactName = contactsMap.get(phone)
+          const displayName = contactName || phone.replace('@s.whatsapp.net', '').replace('@c.us', '')
+          
           return {
             id: phone,
-            name: formattedPhone,
+            name: displayName,
             lastMessage: lastMsg.content.substring(0, 50),
             time: new Date(lastMsg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             unread: 0,
-            avatar: formattedPhone.substring(0, 2).toUpperCase()
+            avatar: displayName.substring(0, 2).toUpperCase()
           }
         })
 
@@ -191,8 +201,20 @@ export default function Messages() {
                 <button className="p-2 hover:bg-slate-800 rounded-lg transition-colors">
                   <Video size={20} className="text-slate-400" />
                 </button>
-                <button className="p-2 hover:bg-slate-800 rounded-lg transition-colors">
-                  <MoreVertical size={20} className="text-slate-400" />
+                <button 
+                  onClick={async () => {
+                    if (confirm('Delete all messages in this conversation?')) {
+                      try {
+                        await api.deleteMessages(selectedConversation)
+                        await loadMessages()
+                      } catch (error) {
+                        alert('Failed to delete messages')
+                      }
+                    }
+                  }}
+                  className="p-2 hover:bg-red-500/10 text-red-400 rounded-lg transition-colors"
+                >
+                  <Trash2 size={20} />
                 </button>
               </div>
             </div>

@@ -165,6 +165,14 @@ export const api = {
     return handleResponse(response)
   },
 
+  async deleteMessages(phone: string) {
+    const response = await fetch(`${API_URL}/messages?phone=${encodeURIComponent(phone)}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${await getToken()}` }
+    })
+    return handleResponse(response)
+  },
+
   // WhatsApp
   async getWhatsAppStatus() {
     const response = await fetch(`${API_URL}/whatsapp/status`, {
