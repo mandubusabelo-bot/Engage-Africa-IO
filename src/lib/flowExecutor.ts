@@ -83,12 +83,16 @@ export class FlowExecutor {
       }
 
       // Send message to agent
-      const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/agent-engine/${agentId}/chat`, {
+      const chatUrl = `${process.env.NEXT_PUBLIC_APP_URL || process.env.RAILWAY_PUBLIC_DOMAIN || ''}/api/agent-engine/${agentId}/chat`
+      console.log(`[Flow] Calling agent chat: ${chatUrl}`)
+      
+      const response = await fetch(chatUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: message || context.message || '',
-          conversationId: context.conversationId
+          conversationId: context.conversationId,
+          phone: context.phone
         })
       })
 

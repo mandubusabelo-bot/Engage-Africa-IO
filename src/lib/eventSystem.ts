@@ -44,8 +44,17 @@ export class EventSystem {
         .not('trigger', 'is', null)
 
       if (error) throw error
-      if (!flows || flows.length === 0) return
+      
+      // If no flows configured, use default agent response for WhatsApp
+      if (!flows || flows.length === 0) {
+        if (eventType === EventTypes.WHATSAPP_INBOUND_MESSAGE && data.phone) {
+          console.log('[EventSystem] No flows configured, using default agent response')
+          await this.executeDefaultAgentResponse(data)
+        }
+        return
+      }
 
+      let flowTriggered = false
       for (const flow of flows) {
         const trigger = flow.trigger as any
         
@@ -59,11 +68,55 @@ export class EventSystem {
               eventType,
               timestamp: new Date().toISOString()
             })
+            flowTriggered = true
           }
         }
       }
+      
+      // Fallback to default agent if no flow matched
+      if (!flowTriggered && eventType === EventTypes.WHATSAPP_INBOUND_MESSAGE && data.phone) {
+        console.log('[EventSystem] No matching flow, using default agent response')
+        await this.executeDefaultAgentResponse(data)
+      }
     } catch (error: any) {
       console.error('Error triggering event flows:', error)
+    }
+  }
+  
+  // Default agent response when no flows are configured
+  private async executeDefaultAgentResponse(data: any) {
+    try {
+      // Get first active agent
+      const { data: agents, error } = await supabaseAdmin
+        .from('agents')
+        .select('*')
+        .eq('is_active', true)
+        .limit(1)
+      
+      if (error || !agents || agents.length === 0) {
+        console.log('[EventSystem] No active agents found for default response')
+        return
+      }
+      
+      const agent = agents[0]
+      console.log(`[EventSystem] Using default agent: ${agent.name}`)
+      
+      // Call agent chat endpoint
+      const chatUrl = `${process.env.NEXT_PUBLIC_APP_URL || process.env.RAILWAY_PUBLIC_DOMAIN || ''}/api/agent-engine/${agent.id}/chat`
+      const response = await fetch(chatUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: data.message,
+          phone: data.phone,
+          conversationId: data.phone
+        })
+      })
+      
+      const result = await response.json()
+      console.log('[EventSystem] Default agent response:', result.success ? 'sent' : 'failed')
+    } catch (error: any) {
+      console.error('[EventSystem] Default agent response error:', error.message)
     }
   }
 
