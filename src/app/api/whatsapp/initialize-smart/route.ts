@@ -53,13 +53,18 @@ export async function POST() {
           // Delete existing instance if it exists to ensure fresh QR
           if (instanceExists) {
             console.log('[Evolution] Deleting existing instance:', instanceName)
-            const deleteResponse = await fetch(`${evolutionApiUrl}/instance/delete/${instanceName}`, {
-              method: 'DELETE',
-              headers: {
-                'apikey': evolutionApiKey
-              }
-            })
-            console.log('[Evolution] Delete status:', deleteResponse.status)
+            try {
+              const deleteResponse = await fetch(`${evolutionApiUrl}/instance/logout/${instanceName}`, {
+                method: 'DELETE',
+                headers: {
+                  'apikey': evolutionApiKey
+                }
+              })
+              const deleteData = await deleteResponse.json()
+              console.log('[Evolution] Logout response:', deleteResponse.status, JSON.stringify(deleteData))
+            } catch (deleteError: any) {
+              console.error('[Evolution] Logout failed:', deleteError?.message)
+            }
           }
 
           // Create fresh instance

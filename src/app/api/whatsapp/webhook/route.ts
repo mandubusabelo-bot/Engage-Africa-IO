@@ -5,14 +5,17 @@ import { eventSystem, EventTypes } from '@/lib/eventSystem'
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
+    console.log('[Webhook] Received:', JSON.stringify(body).slice(0, 500))
 
-    // Evolution API webhook format
+    // Evolution API webhook format (v2 uses MESSAGES_UPSERT)
     const { event, data } = body
 
-    if (event === 'messages.upsert' && data) {
+    if ((event === 'MESSAGES_UPSERT' || event === 'messages.upsert') && data) {
       const message = data.key?.remoteJid
       const text = data.message?.conversation || data.message?.extendedTextMessage?.text
       const fromMe = data.key?.fromMe
+
+      console.log('[Webhook] Message:', { message, text, fromMe })
 
       if (!fromMe && message && text) {
         // Save message to database
@@ -25,7 +28,9 @@ export async function POST(request: NextRequest) {
         })
 
         if (insertError) {
-          console.error('Failed to save message:', insertError)
+          console.error('[Webhook] Failed to save message:', insertError)
+        } else {
+          console.log('[Webhook] Message saved to DB')
         }
 
         // Emit event for flow triggers
@@ -35,13 +40,13 @@ export async function POST(request: NextRequest) {
           timestamp: new Date().toISOString()
         })
 
-        console.log(`WhatsApp message from ${message}: ${text}`)
+        console.log(`[Webhook] ✅ WhatsApp message from ${message}: ${text}`)
       }
     }
 
     return NextResponse.json({ success: true })
   } catch (error: any) {
-    console.error('WhatsApp webhook error:', error)
+    console.error('[Webhook] Error:', error)
     return NextResponse.json({ success: false, error: error.message }, { status: 500 })
   }
 }
