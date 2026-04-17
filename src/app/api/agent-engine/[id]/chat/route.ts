@@ -23,8 +23,88 @@ export async function POST(
 
     console.log(`[AgentChat] Using agent: ${agent.name}`)
 
+    // Check conversation history to determine if this is a returning contact
+    let isReturningContact = false
+    let messageHistory: any[] = []
+    
+    if (phone || conversationId) {
+      const { data: previousMessages } = await supabaseAdmin
+        .from('messages')
+        .select('*')
+        .or(`phone.eq.${phone},conversation_id.eq.${conversationId}`)
+        .order('created_at', { ascending: false })
+        .limit(10)
+      
+      if (previousMessages && previousMessages.length > 0) {
+        isReturningContact = true
+        messageHistory = previousMessages.reverse()
+        console.log(`[AgentChat] Returning contact detected: ${previousMessages.length} previous messages`)
+      }
+    }
+
+    // Build enhanced system prompt with rules
+    let enhancedSystemPrompt = agent.system_prompt || 'You are a helpful AI assistant.'
+    
+    // Add agent identity
+    if (agent.agent_name) {
+      enhancedSystemPrompt += `\n\nYour name is ${agent.agent_name}.`
+    }
+    
+    // Add tone instruction
+    if (agent.tone) {
+      enhancedSystemPrompt += `\n\nTone: Use a ${agent.tone} tone in all responses.`
+    }
+    
+    // RULE 1: No greeting for returning contacts
+    if (agent.rule_no_greet_returning !== false && isReturningContact) {
+      enhancedSystemPrompt += `\n\nCRITICAL RULE - NO GREETING: This contact has previous conversation history. DO NOT say "Hello", "Hi", "Sawubona", "Hey", or any greeting. DO NOT introduce yourself. Continue the conversation naturally from where it left off.`
+    }
+    
+    // RULE 2: Limit emojis
+    if (agent.rule_limit_emojis !== false) {
+      enhancedSystemPrompt += `\n\nCRITICAL RULE - EMOJI LIMIT: Use maximum 1 emoji per response. NEVER use these emojis: 🌿, 🌱, 🍃, 🌴, 🌲, 🌳, 🌾 (nature/plant emojis) unless the user specifically asks about plants or herbs.`
+    }
+    
+    // RULE 3: Concise responses
+    if (agent.rule_concise) {
+      enhancedSystemPrompt += '\n\nCRITICAL RULE - BE CONCISE: Keep responses under 2 sentences unless the user asks for detailed information. Be direct and efficient.'
+    }
+    
+    // Add custom rules if present
+    if (agent.custom_rules) {
+      enhancedSystemPrompt += '\n\nCUSTOM RULES:\n' + agent.custom_rules
+    }
+    
+    // Add fallback message guidance
+    if (agent.fallback_message) {
+      enhancedSystemPrompt += '\n\nIf you cannot answer: ' + agent.fallback_message
+    }
+    
+    // Add never-say guidance
+    if (agent.never_say) {
+      enhancedSystemPrompt += '\n\nNEVER say or use these words/phrases: ' + agent.never_say
+    }
+
+    console.log('[AgentChat] Enhanced system prompt built, length:', enhancedSystemPrompt.length)
+
     // Call AI service (OpenRouter or Gemini)
     let aiResponse = ''
+    
+    // Build message history for context
+    const messages = [{ role: 'system', content: enhancedSystemPrompt }]
+    
+    // Add conversation history if available
+    if (messageHistory.length > 0) {
+      messageHistory.forEach((msg: any) => {
+        messages.push({
+          role: msg.sender === 'agent' || msg.sender === 'ai' || msg.sender === 'bot' ? 'assistant' : 'user',
+          content: msg.content
+        })
+      })
+    }
+    
+    // Add current message
+    messages.push({ role: 'user', content: message })
     
     // Try OpenRouter first
     const openrouterKey = process.env.OPENROUTER_API_KEY
@@ -39,10 +119,7 @@ export async function POST(
           },
           body: JSON.stringify({
             model: process.env.OPENROUTER_MODEL || 'google/gemini-2.0-flash-exp:free',
-            messages: [
-              { role: 'system', content: agent.system_prompt || 'You are a helpful AI assistant.' },
-              { role: 'user', content: message }
-            ]
+            messages: messages
           })
         })
 

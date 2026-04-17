@@ -402,22 +402,28 @@ export default function AgentDetail() {
               Test Agent
             </button>
             <button
-              onClick={() => {
-                handleUpdateAgent({
+              onClick={async () => {
+                setSaving(true)
+                await handleUpdateAgent({
                   name: agent.name,
                   description: agent.description,
+                  instructions: agent.instructions,
                   system_prompt: agent.system_prompt,
                   agent_name: agent.agent_name,
                   greeting_message: agent.greeting_message,
                   fallback_message: agent.fallback_message,
                   never_say: agent.never_say,
                   tone: agent.tone,
+                  personality: agent.personality,
+                  language: agent.language,
                   max_response_length: agent.max_response_length,
                   response_language: agent.response_language,
                   unknown_answer_action: agent.unknown_answer_action,
                   ask_one_question: agent.ask_one_question,
                   confirm_before_closing: agent.confirm_before_closing,
+                  confirm_before_close: agent.confirm_before_close,
                   inactivity_timeout_message: agent.inactivity_timeout_message,
+                  inactivity_message: agent.inactivity_message,
                   suppress_intro_returning: agent.suppress_intro_returning,
                   returning_contact_message: agent.returning_contact_message,
                   returning_contact_window_hours: agent.returning_contact_window_hours,
@@ -427,8 +433,17 @@ export default function AgentDetail() {
                   remember_last_product: agent.remember_last_product,
                   remember_open_issues: agent.remember_open_issues,
                   max_context_turns: agent.max_context_turns,
-                  follow_up_behavior: agent.follow_up_behavior
+                  follow_up_behavior: agent.follow_up_behavior,
+                  actions_config: agent.actions_config,
+                  kb_config: agent.kb_config,
+                  // Rules
+                  rule_no_greet_returning: agent.rule_no_greet_returning,
+                  rule_limit_emojis: agent.rule_limit_emojis,
+                  rule_concise: agent.rule_concise,
+                  custom_rules: agent.custom_rules,
+                  is_active: agent.is_active
                 })
+                setSaving(false)
               }}
               disabled={saving}
               className="flex items-center gap-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-700 text-white rounded-lg font-medium transition-colors"
