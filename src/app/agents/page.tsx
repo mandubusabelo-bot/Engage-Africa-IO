@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import Layout from '@/components/Layout'
 import { Bot, Plus, Edit, Power, MessageSquare } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -18,6 +19,7 @@ interface Agent {
 }
 
 export default function Agents() {
+  const router = useRouter()
   const [agents, setAgents] = useState<Agent[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreateModal, setShowCreateModal] = useState(false)
@@ -232,11 +234,11 @@ export default function Agents() {
               {/* Actions */}
               <div className="flex gap-2">
                 <button 
-                  onClick={() => handleEditAgent(agent)}
+                  onClick={() => router.push(`/agents/${agent.id}`)}
                   className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-slate-900 border border-slate-800 text-slate-200 rounded-lg hover:bg-slate-800 transition-colors text-sm"
                 >
                   <Edit size={14} />
-                  Edit
+                  Manage
                 </button>
               </div>
             </div>
