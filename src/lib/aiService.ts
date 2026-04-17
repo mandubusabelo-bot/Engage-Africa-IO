@@ -82,29 +82,87 @@ export async function sendWhatsAppReply(phone: string, message: string): Promise
   }
 }
 
-export async function handleIncomingWhatsApp(phone: string, message: string): Promise<void> {
+export async function handleIncomingWhatsApp(phone: string, message: string, pushName?: string): Promise<void> {
   console.log(`[AI Handler] Processing message from ${phone}: ${message}`)
 
-  // Get first available agent
-  let { data: agents } = await supabaseAdmin.from('agents').select('*').eq('is_active', true).limit(1)
-  if (!agents || agents.length === 0) {
-    const result = await supabaseAdmin.from('agents').select('*').limit(1)
-    agents = result.data
+  // Get or create contact
+  let { data: contact } = await supabaseAdmin
+    .from('contacts')
+    .select('*')
+    .eq('phone', phone)
+    .single()
+
+  if (!contact) {
+    // Create new contact
+    const { data: newContact } = await supabaseAdmin
+      .from('contacts')
+      .insert({
+        phone,
+        name: pushName || phone.split('@')[0],
+        last_message_at: new Date().toISOString()
+      })
+      .select()
+      .single()
+    contact = newContact
+    console.log(`[AI Handler] New contact created: ${contact?.name}`)
+  } else {
+    // Update last message time and name if provided
+    await supabaseAdmin
+      .from('contacts')
+      .update({
+        last_message_at: new Date().toISOString(),
+        ...(pushName && { name: pushName })
+      })
+      .eq('phone', phone)
+    console.log(`[AI Handler] Existing contact: ${contact.name}`)
   }
 
-  const systemPrompt = agents?.[0]?.system_prompt || 'You are a helpful AI assistant for Engage Africa. Be friendly, concise, and helpful.'
-  const agentId = agents?.[0]?.id || null
-  const agentName = agents?.[0]?.name || 'AI Assistant'
+  // Get assigned agent or assign one
+  let agentId = contact?.assigned_agent_id
+  let agent = null
 
-  console.log(`[AI Handler] Using agent: ${agentName}`)
+  if (agentId) {
+    const { data: assignedAgent } = await supabaseAdmin
+      .from('agents')
+      .select('*')
+      .eq('id', agentId)
+      .single()
+    agent = assignedAgent
+  }
 
-  // Generate AI response
-  const aiResponse = await getAIResponse(message, systemPrompt)
+  // If no assigned agent, get first available
+  if (!agent) {
+    let { data: agents } = await supabaseAdmin.from('agents').select('*').eq('is_active', true).limit(1)
+    if (!agents || agents.length === 0) {
+      const result = await supabaseAdmin.from('agents').select('*').limit(1)
+      agents = result.data
+    }
+    agent = agents?.[0]
+
+    // Assign agent to contact
+    if (agent && contact) {
+      await supabaseAdmin
+        .from('contacts')
+        .update({ assigned_agent_id: agent.id })
+        .eq('phone', phone)
+      console.log(`[AI Handler] Assigned agent ${agent.name} to contact ${contact.name}`)
+    }
+  }
+
+  const systemPrompt = agent?.system_prompt || 'You are a helpful AI assistant for Engage Africa. Be friendly, concise, and helpful.'
+  const agentName = agent?.name || 'AI Assistant'
+  const contactName = contact?.name || phone.split('@')[0]
+
+  console.log(`[AI Handler] Using agent: ${agentName} for contact: ${contactName}`)
+
+  // Generate AI response with contact name context
+  const contextualPrompt = `${systemPrompt}\n\nYou are speaking with ${contactName}.`
+  const aiResponse = await getAIResponse(message, contextualPrompt)
   console.log(`[AI Handler] AI response: ${aiResponse.slice(0, 100)}...`)
 
   // Save AI response to DB
   await supabaseAdmin.from('messages').insert({
-    agent_id: agentId,
+    agent_id: agent?.id || null,
     content: aiResponse,
     sender: 'agent',
     phone: phone

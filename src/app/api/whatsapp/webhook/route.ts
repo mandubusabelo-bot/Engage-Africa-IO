@@ -13,8 +13,9 @@ export async function POST(request: NextRequest) {
       const phone = data.key?.remoteJid
       const text = data.message?.conversation || data.message?.extendedTextMessage?.text
       const fromMe = data.key?.fromMe
+      const pushName = data.pushName
 
-      console.log('[Webhook] Message:', { phone, text, fromMe })
+      console.log('[Webhook] Message:', { phone, text, fromMe, pushName })
 
       if (!fromMe && phone && text) {
         // Save inbound message to DB
@@ -31,10 +32,10 @@ export async function POST(request: NextRequest) {
           console.log('[Webhook] Message saved to DB')
         }
 
-        console.log(`[Webhook] ✅ WhatsApp message from ${phone}: ${text}`)
+        console.log(`[Webhook] ✅ WhatsApp message from ${pushName || phone}: ${text}`)
 
         // Process and reply (non-blocking - don't await so webhook returns fast)
-        handleIncomingWhatsApp(phone, text).catch(err =>
+        handleIncomingWhatsApp(phone, text, pushName).catch(err =>
           console.error('[Webhook] AI handler error:', err.message)
         )
       }
