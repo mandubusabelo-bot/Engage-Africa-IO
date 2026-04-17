@@ -76,31 +76,30 @@ export async function POST() {
             })
           })
 
-            console.log('[Evolution] createInstance status:', createResponse.status)
-            if (createResponse.ok) {
-              const createData = await createResponse.json()
-              console.log('[Evolution] createData:', JSON.stringify(createData).slice(0, 300))
-              
-              // Get QR code
-              const qrResponse = await fetch(`${evolutionApiUrl}/instance/connect/${instanceName}`, {
-                headers: {
-                  'apikey': evolutionApiKey
+          console.log('[Evolution] createInstance status:', createResponse.status)
+          if (createResponse.ok) {
+            const createData = await createResponse.json()
+            console.log('[Evolution] createData:', JSON.stringify(createData).slice(0, 300))
+            
+            // Get QR code
+            const qrResponse = await fetch(`${evolutionApiUrl}/instance/connect/${instanceName}`, {
+              headers: {
+                'apikey': evolutionApiKey
+              }
+            })
+
+            if (qrResponse.ok) {
+              const qrData = await qrResponse.json()
+              return NextResponse.json({
+                success: true,
+                data: {
+                  status: 'qr_ready',
+                  mode: 'evolution_api',
+                  qrCode: qrData.base64 || qrData.qrcode,
+                  instanceName,
+                  warning: 'Scan QR code to connect'
                 }
               })
-
-              if (qrResponse.ok) {
-                const qrData = await qrResponse.json()
-                return NextResponse.json({
-                  success: true,
-                  data: {
-                    status: 'qr_ready',
-                    mode: 'evolution_api',
-                    qrCode: qrData.base64 || qrData.qrcode,
-                    instanceName,
-                    warning: 'Scan QR code to connect'
-                  }
-                })
-              }
             }
           }
         }
