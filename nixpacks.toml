@@ -5,7 +5,7 @@ nixPkgs = ["nodejs_20"]
 cmds = ["npm install --legacy-peer-deps"]
 
 [phases.build]
-cmds = ["mkdir -p .next/cache node_modules/.cache && find .next/cache -mindepth 1 -delete && find node_modules/.cache -mindepth 1 -delete && NODE_ENV=production NEXT_IGNORE_INCORRECT_LOCKFILE=1 npm run build"]
+cmds = ["NODE_ENV=production NEXT_IGNORE_INCORRECT_LOCKFILE=1 npm run build"]
 
 [start]
 cmd = "npm start"
