@@ -128,16 +128,18 @@ export async function GET(
     
     return NextResponse.json({
       success: true,
-      webhookUrl: `${baseUrl}/api/webhooks/flow/${flowId}`,
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      supportedHeaders: {
-        'X-Webhook-Event': 'Event type (e.g., stripe.payment, github.push)',
-        'X-Webhook-Signature': 'HMAC-SHA256 signature for verification'
-      },
-      idempotency: 'Events are deduplicated for 5 minutes based on event_id'
+      data: {
+        webhookUrl: `${baseUrl}/api/webhooks/flow/${flowId}`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        supportedHeaders: {
+          'X-Webhook-Event': 'Event type (e.g., stripe.payment, github.push)',
+          'X-Webhook-Signature': 'HMAC-SHA256 signature for verification'
+        },
+        idempotency: 'Events are deduplicated for 5 minutes based on event_id'
+      }
     })
   } catch (error: any) {
     console.error('Get webhook URL error:', error)

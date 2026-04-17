@@ -67,7 +67,6 @@ export default function Layout({ children }: LayoutProps) {
     { path: '/messages', icon: MessageSquare, label: 'Messages' },
     { path: '/contacts', icon: Users, label: 'Contacts' },
     { path: '/agents', icon: Bot, label: 'Agents' },
-    { path: '/knowledge', icon: BookOpen, label: 'Knowledge Base' },
     { path: '/flows', icon: Workflow, label: 'Flows' },
     { path: '/analytics', icon: BarChart3, label: 'Analytics' },
     { path: '/templates', icon: FileText, label: 'Templates' },
