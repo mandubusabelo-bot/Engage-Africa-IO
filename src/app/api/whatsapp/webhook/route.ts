@@ -1,29 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-server'
-import { eventSystem, EventTypes } from '@/lib/eventSystem'
+import { handleIncomingWhatsApp } from '@/lib/aiService'
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    console.log('[Webhook] Received:', JSON.stringify(body).slice(0, 500))
+    console.log('[Webhook] Received:', JSON.stringify(body).slice(0, 300))
 
-    // Evolution API webhook format (v2 uses MESSAGES_UPSERT)
     const { event, data } = body
 
     if ((event === 'MESSAGES_UPSERT' || event === 'messages.upsert') && data) {
-      const message = data.key?.remoteJid
+      const phone = data.key?.remoteJid
       const text = data.message?.conversation || data.message?.extendedTextMessage?.text
       const fromMe = data.key?.fromMe
 
-      console.log('[Webhook] Message:', { message, text, fromMe })
+      console.log('[Webhook] Message:', { phone, text, fromMe })
 
-      if (!fromMe && message && text) {
-        // Save message to database
+      if (!fromMe && phone && text) {
+        // Save inbound message to DB
         const { error: insertError } = await (supabaseAdmin.from('messages') as any).insert({
           agent_id: null,
           content: text,
           sender: 'user',
-          phone: message
+          phone
         })
 
         if (insertError) {
@@ -32,14 +31,12 @@ export async function POST(request: NextRequest) {
           console.log('[Webhook] Message saved to DB')
         }
 
-        // Emit event for flow triggers
-        eventSystem.emit(EventTypes.WHATSAPP_INBOUND_MESSAGE, {
-          message: text,
-          phone: message,
-          timestamp: new Date().toISOString()
-        })
+        console.log(`[Webhook] ✅ WhatsApp message from ${phone}: ${text}`)
 
-        console.log(`[Webhook] ✅ WhatsApp message from ${message}: ${text}`)
+        // Process and reply (non-blocking - don't await so webhook returns fast)
+        handleIncomingWhatsApp(phone, text).catch(err =>
+          console.error('[Webhook] AI handler error:', err.message)
+        )
       }
     }
 
