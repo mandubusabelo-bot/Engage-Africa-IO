@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import Layout from '@/components/Layout'
 import { Plus, Play, Pause, Copy, Trash2, Sparkles, Zap, ChevronDown, Settings } from 'lucide-react'
 import { api } from '@/lib/api'
+import FlowBuilder from '@/components/FlowBuilder'
 
 interface WorkflowStep {
   id: string
@@ -205,6 +206,12 @@ export default function Flows() {
     }
   }
 
+  const handleSaveFlowSteps = async (steps: WorkflowStep[]) => {
+    if (!selectedFlowId) return
+    await api.updateWorkflow(selectedFlowId, { steps })
+    await loadFlows()
+  }
+
   const deleteFlow = async (id: string) => {
     if (confirm('Are you sure you want to delete this flow?')) {
       try {
@@ -403,6 +410,17 @@ export default function Flows() {
                 )}
               </div>
             </div>
+
+            {selectedFlow && (
+              <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3 mb-4">
+                <FlowBuilder
+                  key={`${selectedFlow.id}-${selectedFlow.steps.length}`}
+                  flowId={selectedFlow.id}
+                  initialSteps={selectedFlow.steps as any}
+                  onSave={handleSaveFlowSteps}
+                />
+              </div>
+            )}
 
             <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
               <h3 className="text-xs text-slate-400 mb-2">Existing Flows</h3>

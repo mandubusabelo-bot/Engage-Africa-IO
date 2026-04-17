@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import Layout from '@/components/Layout'
 import { BookOpen, Plus, Trash2, Edit2, Save, X, Globe, Bot } from 'lucide-react'
-import { supabase } from '@/lib/supabase'
+import { api } from '@/lib/api'
 
 interface KnowledgeItem {
   id: string
@@ -39,22 +39,16 @@ export default function KnowledgePage() {
       setLoading(true)
       
       // Load knowledge base
-      const { data: kb, error: kbError } = await supabase
-        .from('knowledge_base')
-        .select('*')
-        .order('created_at', { ascending: false })
-      
-      if (!kbError && kb) {
-        setKnowledge(kb)
+      const kbRes = await fetch('/api/knowledge-base')
+      const kbJson = await kbRes.json()
+      if (kbJson.success) {
+        setKnowledge(kbJson.data || [])
       }
       
       // Load agents
-      const { data: agentsData, error: agentsError } = await supabase
-        .from('agents')
-        .select('id, name')
-      
-      if (!agentsError && agentsData) {
-        setAgents(agentsData)
+      const agentsRes = await api.getAgents()
+      if (agentsRes.success && agentsRes.data) {
+        setAgents(agentsRes.data.map((a: any) => ({ id: a.id, name: a.name })))
       }
     } catch (error) {
       console.error('Failed to load data:', error)
@@ -67,15 +61,18 @@ export default function KnowledgePage() {
     if (!formData.title || !formData.content) return
     
     try {
-      const { error } = await supabase
-        .from('knowledge_base')
-        .insert({
+      const response = await fetch('/api/knowledge-base', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           title: formData.title,
           content: formData.content,
           agent_id: formData.agent_id
         })
-      
-      if (!error) {
+      })
+      const result = await response.json()
+
+      if (result.success) {
         setShowAddModal(false)
         setFormData({ title: '', content: '', agent_id: null })
         loadData()
@@ -89,12 +86,10 @@ export default function KnowledgePage() {
     if (!confirm('Delete this knowledge item?')) return
     
     try {
-      const { error } = await supabase
-        .from('knowledge_base')
-        .delete()
-        .eq('id', id)
-      
-      if (!error) {
+      const response = await fetch(`/api/knowledge-base/${id}`, { method: 'DELETE' })
+      const result = await response.json()
+
+      if (result.success) {
         loadData()
       }
     } catch (error) {

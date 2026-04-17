@@ -13,8 +13,10 @@ export async function GET(request: NextRequest) {
     if (endDate) messagesQuery = messagesQuery.lte('created_at', endDate)
     const { data: messages } = await messagesQuery
 
-    // Get contacts
-    const { data: contacts } = await supabaseAdmin.from('contacts').select('*')
+    // Get contacts (fallback for older schemas)
+    const contactsWithLastMessage = await supabaseAdmin.from('contacts').select('*')
+    const contactsWithoutLastMessage = await supabaseAdmin.from('contacts').select('id, phone, name, assigned_agent_id, created_at')
+    const contacts = contactsWithLastMessage.error ? contactsWithoutLastMessage.data : contactsWithLastMessage.data
     
     // Get agents
     const { data: agents } = await supabaseAdmin.from('agents').select('*')
@@ -66,13 +68,27 @@ export async function GET(request: NextRequest) {
     
     const maxMessages = Math.max(...messageData.map(d => d.messages), 1)
     
-    // Active conversations (contacts with recent messages)
-    const activeConversations = contacts?.filter(c => {
-      if (!c.last_message_at) return false
-      const lastMsg = new Date(c.last_message_at)
-      const daysSince = (Date.now() - lastMsg.getTime()) / (1000 * 60 * 60 * 24)
-      return daysSince < 7
-    }).length || 0
+    // Active conversations (prefer contacts.last_message_at, fallback to recent message phones)
+    let activeConversations = 0
+    if (contacts && contacts.length > 0 && (contacts as any[]).some((c: any) => c.last_message_at)) {
+      activeConversations = (contacts as any[]).filter((c: any) => {
+        if (!c.last_message_at) return false
+        const lastMsg = new Date(c.last_message_at)
+        const daysSince = (Date.now() - lastMsg.getTime()) / (1000 * 60 * 60 * 24)
+        return daysSince < 7
+      }).length
+    } else {
+      const recentPhoneSet = new Set(
+        (messages || [])
+          .filter((m: any) => {
+            const msgDate = new Date(m.created_at)
+            const daysSince = (Date.now() - msgDate.getTime()) / (1000 * 60 * 60 * 24)
+            return daysSince < 7 && !!m.phone
+          })
+          .map((m: any) => m.phone)
+      )
+      activeConversations = recentPhoneSet.size
+    }
 
     const analytics = {
       totalMessages,

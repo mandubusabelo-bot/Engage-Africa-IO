@@ -1,18 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase'
+import { supabaseAdmin } from '@/lib/supabase-server'
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    // TODO: Add auth check back after testing
-    // const { data: { session } } = await supabase.auth.getSession()
-    // if (!session) {
-    //   return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
-    // }
-
-    const { data: agent, error } = await supabase
+    const { data: agent, error } = await supabaseAdmin
       .from('agents')
       .select('*')
       .eq('id', params.id)
@@ -32,14 +26,9 @@ export async function PUT(
   { params }: { params: { id: string } }
 ) {
   try {
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
-    }
-
     const updates = await request.json()
 
-    const { data: agent, error } = await supabase
+    const { data: agent, error } = await supabaseAdmin
       .from('agents')
       .update(updates)
       .eq('id', params.id)

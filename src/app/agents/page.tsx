@@ -13,7 +13,8 @@ interface Agent {
   instructions: string
   personality: string
   language: string
-  status: string
+  status?: string
+  is_active?: boolean
   message_count: number
   response_rate: number
 }
@@ -50,6 +51,11 @@ export default function Agents() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const isAgentActive = (agent: Agent) => {
+    if (typeof agent.is_active === 'boolean') return agent.is_active
+    return (agent.status || '').toLowerCase() === 'active'
   }
 
   const handleCreateAgent = async () => {
@@ -116,8 +122,8 @@ export default function Agents() {
     if (!agent) return
     
     try {
-      const newStatus = agent.status === 'active' ? 'inactive' : 'active'
-      await api.updateAgent(id, { status: newStatus })
+      const nextIsActive = !isAgentActive(agent)
+      await api.updateAgent(id, { is_active: nextIsActive })
       await loadAgents()
     } catch (error) {
       console.error('Failed to toggle agent status:', error)
@@ -158,7 +164,7 @@ export default function Agents() {
               <h3 className="text-sm font-medium text-slate-400">Active Agents</h3>
             </div>
             <p className="text-3xl font-bold text-slate-100">
-              {agents.filter(a => a.status === 'active').length}
+              {agents.filter((a) => isAgentActive(a)).length}
             </p>
           </div>
           <div className="bg-slate-950/60 p-6 rounded-xl border border-slate-800">
@@ -189,25 +195,25 @@ export default function Agents() {
               <div className="flex items-start justify-between mb-3 sm:mb-4">
                 <div className="flex min-w-0 items-center gap-2 sm:gap-3">
                   <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-lg flex items-center justify-center text-2xl ${
-                    agent.status === 'active' ? 'bg-cyan-500/20 border border-cyan-400/30' : 'bg-slate-800 border border-slate-700'
+                    isAgentActive(agent) ? 'bg-cyan-500/20 border border-cyan-400/30' : 'bg-slate-800 border border-slate-700'
                   }`}>
                     🤖
                   </div>
                   <div className="min-w-0">
                     <h3 className="font-bold text-slate-100 text-sm sm:text-base break-words">{agent.name}</h3>
                     <span className={`text-xs px-2 py-1 rounded-full ${
-                      agent.status === 'active'
+                      isAgentActive(agent)
                         ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' 
                         : 'bg-slate-800 text-slate-400 border border-slate-700'
                     }`}>
-                      {agent.status}
+                      {isAgentActive(agent) ? 'active' : 'inactive'}
                     </span>
                   </div>
                 </div>
                 <button
                   onClick={() => toggleAgentStatus(agent.id)}
                   className={`p-2 rounded-lg transition-colors ${
-                    agent.status === 'active'
+                    isAgentActive(agent)
                       ? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25'
                       : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
                   }`}

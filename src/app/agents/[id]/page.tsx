@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Layout from '@/components/Layout'
 import { Bot, BookOpen, Plus, Trash2, Save, ArrowLeft, Power } from 'lucide-react'
-import { supabase } from '@/lib/supabase'
+import { api } from '@/lib/api'
 
 interface KnowledgeItem {
   id: string
@@ -28,66 +28,57 @@ export default function AgentDetail() {
   const [selectedKnowledgeId, setSelectedKnowledgeId] = useState('')
   const [activeTab, setActiveTab] = useState<'settings' | 'knowledge'>('settings')
 
-  useEffect(() => {
-    loadData()
-  }, [agentId])
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true)
 
       // Load agent
-      const { data: agentData } = await supabase
-        .from('agents')
-        .select('*')
-        .eq('id', agentId)
-        .single()
-
-      if (agentData) {
-        setAgent(agentData)
+      const agentRes = await api.getAgent(agentId)
+      if (agentRes.success && agentRes.data) {
+        setAgent(agentRes.data)
       }
 
       // Load agent's knowledge
-      const { data: kb } = await supabase
-        .from('knowledge_base')
-        .select('*')
-        .eq('agent_id', agentId)
-        .order('created_at', { ascending: false })
-
-      if (kb) {
-        setKnowledge(kb)
+      const kbRes = await fetch(`/api/knowledge-base?agentId=${agentId}`)
+      const kbJson = await kbRes.json()
+      if (kbJson.success) {
+        setKnowledge(kbJson.data || [])
       }
 
       // Load all global knowledge for linking
-      const { data: globalKb } = await supabase
-        .from('knowledge_base')
-        .select('*')
-        .is('agent_id', null)
-        .order('created_at', { ascending: false })
-
-      if (globalKb) {
-        setAllKnowledge(globalKb)
+      const globalRes = await fetch('/api/knowledge-base?scope=global')
+      const globalJson = await globalRes.json()
+      if (globalJson.success) {
+        setAllKnowledge(globalJson.data || [])
       }
     } catch (error) {
       console.error('Failed to load data:', error)
     } finally {
       setLoading(false)
     }
-  }
+  }, [agentId])
+
+  useEffect(() => {
+    loadData()
+  }, [loadData])
 
   const handleAddKnowledge = async () => {
     if (!newKnowledge.title || !newKnowledge.content) return
 
     try {
-      const { error } = await supabase
-        .from('knowledge_base')
-        .insert({
+      const response = await fetch('/api/knowledge-base', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           title: newKnowledge.title,
           content: newKnowledge.content,
           agent_id: agentId
         })
+      })
 
-      if (!error) {
+      const result = await response.json()
+
+      if (result.success) {
         setShowAddKnowledge(false)
         setNewKnowledge({ title: '', content: '' })
         loadData()
@@ -102,23 +93,23 @@ export default function AgentDetail() {
 
     try {
       // Get the global knowledge item
-      const { data: globalItem } = await supabase
-        .from('knowledge_base')
-        .select('*')
-        .eq('id', selectedKnowledgeId)
-        .single()
+      const globalItem = allKnowledge.find((k) => k.id === selectedKnowledgeId)
 
       if (globalItem) {
         // Create a copy for this agent
-        const { error } = await supabase
-          .from('knowledge_base')
-          .insert({
+        const response = await fetch('/api/knowledge-base', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
             title: globalItem.title,
             content: globalItem.content,
             agent_id: agentId
           })
+        })
 
-        if (!error) {
+        const result = await response.json()
+
+        if (result.success) {
           setShowLinkKnowledge(false)
           setSelectedKnowledgeId('')
           loadData()
@@ -133,12 +124,12 @@ export default function AgentDetail() {
     if (!confirm('Delete this knowledge item?')) return
 
     try {
-      const { error } = await supabase
-        .from('knowledge_base')
-        .delete()
-        .eq('id', id)
+      const response = await fetch(`/api/knowledge-base/${id}`, {
+        method: 'DELETE'
+      })
+      const result = await response.json()
 
-      if (!error) {
+      if (result.success) {
         loadData()
       }
     } catch (error) {
@@ -148,12 +139,9 @@ export default function AgentDetail() {
 
   const handleUpdateAgent = async (updates: any) => {
     try {
-      const { error } = await supabase
-        .from('agents')
-        .update(updates)
-        .eq('id', agentId)
+      const response = await api.updateAgent(agentId, updates)
 
-      if (!error) {
+      if (response.success) {
         loadData()
       }
     } catch (error) {

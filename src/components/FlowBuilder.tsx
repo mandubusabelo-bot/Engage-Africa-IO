@@ -24,11 +24,40 @@ const STEP_TYPES = [
   { type: 'notification', label: 'Notification', icon: MessageSquare, color: 'green' }
 ]
 
+const STEP_COLOR_STYLES: Record<string, { card: string; iconWrap: string; icon: string }> = {
+  agent_chat: {
+    card: 'border-cyan-500/20 hover:border-cyan-500/40',
+    iconWrap: 'bg-cyan-500/10 border-cyan-500/30',
+    icon: 'text-cyan-400'
+  },
+  delay: {
+    card: 'border-yellow-500/20 hover:border-yellow-500/40',
+    iconWrap: 'bg-yellow-500/10 border-yellow-500/30',
+    icon: 'text-yellow-400'
+  },
+  condition: {
+    card: 'border-purple-500/20 hover:border-purple-500/40',
+    iconWrap: 'bg-purple-500/10 border-purple-500/30',
+    icon: 'text-purple-400'
+  },
+  webhook: {
+    card: 'border-blue-500/20 hover:border-blue-500/40',
+    iconWrap: 'bg-blue-500/10 border-blue-500/30',
+    icon: 'text-blue-400'
+  },
+  notification: {
+    card: 'border-green-500/20 hover:border-green-500/40',
+    iconWrap: 'bg-green-500/10 border-green-500/30',
+    icon: 'text-green-400'
+  }
+}
+
 export default function FlowBuilder({ flowId, initialSteps, onSave }: FlowBuilderProps) {
   const [steps, setSteps] = useState<FlowStep[]>(initialSteps)
   const [showAddStep, setShowAddStep] = useState(false)
   const [editingStep, setEditingStep] = useState<FlowStep | null>(null)
   const [saving, setSaving] = useState(false)
+  const [draggingStepId, setDraggingStepId] = useState<string | null>(null)
 
   const addStep = (type: string) => {
     const newStep: FlowStep = {
@@ -54,6 +83,20 @@ export default function FlowBuilder({ flowId, initialSteps, onSave }: FlowBuilde
     [newSteps[index], newSteps[targetIndex]] = [newSteps[targetIndex], newSteps[index]]
     newSteps.forEach((step, i) => step.order = i)
     setSteps(newSteps)
+  }
+
+  const moveStepToIndex = (draggedId: string, targetId: string) => {
+    if (draggedId === targetId) return
+    const reordered = [...steps]
+    const from = reordered.findIndex((s) => s.id === draggedId)
+    const to = reordered.findIndex((s) => s.id === targetId)
+    if (from < 0 || to < 0) return
+    const [dragged] = reordered.splice(from, 1)
+    reordered.splice(to, 0, dragged)
+    reordered.forEach((step, i) => {
+      step.order = i
+    })
+    setSteps(reordered)
   }
 
   const updateStepConfig = (id: string, config: any) => {
@@ -129,21 +172,35 @@ export default function FlowBuilder({ flowId, initialSteps, onSave }: FlowBuilde
         ) : (
           steps.map((step, index) => {
             const Icon = getStepIcon(step.type)
-            const color = getStepColor(step.type)
+            const colorStyles = STEP_COLOR_STYLES[step.type] || {
+              card: 'border-slate-700 hover:border-slate-600',
+              iconWrap: 'bg-slate-800 border-slate-700',
+              icon: 'text-slate-300'
+            }
             
             return (
-              <div key={step.id} className="relative">
+              <div
+                key={step.id}
+                className="relative"
+                draggable
+                onDragStart={() => setDraggingStepId(step.id)}
+                onDragEnd={() => setDraggingStepId(null)}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={() => {
+                  if (draggingStepId) moveStepToIndex(draggingStepId, step.id)
+                }}
+              >
                 {/* Connection Line */}
                 {index < steps.length - 1 && (
                   <div className="absolute left-6 top-full w-0.5 h-3 bg-slate-700 z-0" />
                 )}
                 
                 {/* Step Card */}
-                <div className={`bg-slate-900 rounded-lg p-4 border-2 border-${color}-500/20 hover:border-${color}-500/40 transition-colors relative z-10`}>
+                <div className={`bg-slate-900 rounded-lg p-4 border-2 transition-colors relative z-10 ${colorStyles.card} ${draggingStepId === step.id ? 'opacity-60' : ''}`}>
                   <div className="flex items-start gap-3">
                     {/* Step Number & Icon */}
-                    <div className={`flex-shrink-0 w-12 h-12 rounded-lg bg-${color}-500/10 border border-${color}-500/30 flex items-center justify-center`}>
-                      <Icon size={20} className={`text-${color}-400`} />
+                    <div className={`flex-shrink-0 w-12 h-12 rounded-lg border flex items-center justify-center ${colorStyles.iconWrap}`}>
+                      <Icon size={20} className={colorStyles.icon} />
                     </div>
 
                     {/* Step Content */}
