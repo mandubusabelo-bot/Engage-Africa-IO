@@ -9,3 +9,6 @@ cmds = ["NODE_ENV=production NEXT_IGNORE_INCORRECT_LOCKFILE=1 npm run build"]
 
 [start]
 cmd = "npm start"
+
+[variables]
+NIXPACKS_NO_DETECTIONS = "true"
