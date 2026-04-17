@@ -39,6 +39,12 @@ ALTER TABLE agents ADD COLUMN IF NOT EXISTS actions_config JSONB DEFAULT '{}';
 -- Knowledge base configuration per agent
 ALTER TABLE agents ADD COLUMN IF NOT EXISTS kb_config JSONB DEFAULT '{}';
 
+-- Agent Rules (hard constraints)
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS rule_no_greet_returning BOOLEAN DEFAULT true;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS rule_limit_emojis BOOLEAN DEFAULT true;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS rule_concise BOOLEAN DEFAULT false;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS custom_rules TEXT DEFAULT '';
+
 -- Create conversations metadata table for greeting tracking
 CREATE TABLE IF NOT EXISTS conversation_metadata (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

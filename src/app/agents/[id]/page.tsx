@@ -58,7 +58,7 @@ export default function AgentDetail() {
   const [saving, setSaving] = useState(false)
   
   // Tab state - expanded tabs
-  const [activeTab, setActiveTab] = useState<'identity' | 'actions' | 'knowledge' | 'memory' | 'behavior'>('identity')
+  const [activeTab, setActiveTab] = useState<'identity' | 'actions' | 'knowledge' | 'memory' | 'behavior' | 'rules'>('identity')
   
   // Modal states
   const [showAddKnowledge, setShowAddKnowledge] = useState(false)
@@ -458,6 +458,7 @@ export default function AgentDetail() {
             { id: 'knowledge', label: 'Knowledge', icon: BookOpen },
             { id: 'memory', label: 'Memory', icon: Brain },
             { id: 'behavior', label: 'Behavior', icon: Sliders },
+            { id: 'rules', label: 'Rules', icon: Shield },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -1235,6 +1236,125 @@ export default function AgentDetail() {
                       />
                     </div>
                   </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* RULES TAB */}
+        {activeTab === 'rules' && (
+          <div className="space-y-6">
+            <div className="bg-slate-900 rounded-xl p-6 border border-slate-800">
+              <div className="flex items-center gap-2 mb-4">
+                <Shield className="text-cyan-400" size={20} />
+                <h3 className="text-lg font-semibold text-white">Agent Rules</h3>
+              </div>
+              <p className="text-sm text-slate-400 mb-4">
+                Define strict rules that force the agent to follow specific behaviors. These rules are injected at the highest priority in the system prompt.
+              </p>
+
+              {/* Greeting Control Rule */}
+              <div className="space-y-4">
+                <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
+                  <div className="flex items-center justify-between mb-3">
+                    <label className="text-sm font-medium text-slate-300 flex items-center gap-2">
+                      <AlertCircle size={16} className="text-amber-400" />
+                      NO_GREETING_RETURNING_CONTACTS
+                    </label>
+                    <button
+                      onClick={() => handleUpdateAgent({ 
+                        rule_no_greet_returning: !(agent.rule_no_greet_returning ?? true) 
+                      })}
+                      className={`relative w-12 h-6 rounded-full transition-colors ${
+                        (agent.rule_no_greet_returning ?? true) ? 'bg-cyan-500' : 'bg-slate-700'
+                      }`}
+                    >
+                      <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                        (agent.rule_no_greet_returning ?? true) ? 'translate-x-6' : ''
+                      }`} />
+                    </button>
+                  </div>
+                  <p className="text-xs text-slate-500 mb-2">
+                    STRICT RULE: When a contact has previous conversation history, NEVER send greeting messages like "Hello", "Hi", "Sawubona", or any introduction. Continue naturally from previous context.
+                  </p>
+                  <code className="text-xs bg-slate-950 px-2 py-1 rounded text-cyan-300">
+                    ENFORCE: if (contact.hasHistory) SKIP_GREETING = true;
+                  </code>
+                </div>
+
+                {/* Emoji Control Rule */}
+                <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
+                  <div className="flex items-center justify-between mb-3">
+                    <label className="text-sm font-medium text-slate-300 flex items-center gap-2">
+                      <AlertCircle size={16} className="text-amber-400" />
+                      LIMIT_EMOJI_USAGE
+                    </label>
+                    <button
+                      onClick={() => handleUpdateAgent({ 
+                        rule_limit_emojis: !(agent.rule_limit_emojis ?? true) 
+                      })}
+                      className={`relative w-12 h-6 rounded-full transition-colors ${
+                        (agent.rule_limit_emojis ?? true) ? 'bg-cyan-500' : 'bg-slate-700'
+                      }`}
+                    >
+                      <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                        (agent.rule_limit_emojis ?? true) ? 'translate-x-6' : ''
+                      }`} />
+                    </button>
+                  </div>
+                  <p className="text-xs text-slate-500 mb-2">
+                    STRICT RULE: Maximum 1 emoji per response. Never use nature/plant emojis (🌿🌱🍃🌴🌲) unless specifically asked about plants/herbs.
+                  </p>
+                  <code className="text-xs bg-slate-950 px-2 py-1 rounded text-cyan-300">
+                    ENFORCE: emoji_count &lt;= 1; BLOCKED_EMOJIS = [🌿, 🌱, 🍃, 🌴, 🌲];
+                  </code>
+                </div>
+
+                {/* Concise Response Rule */}
+                <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
+                  <div className="flex items-center justify-between mb-3">
+                    <label className="text-sm font-medium text-slate-300 flex items-center gap-2">
+                      <AlertCircle size={16} className="text-amber-400" />
+                      FORCE_CONCISE_RESPONSES
+                    </label>
+                    <button
+                      onClick={() => handleUpdateAgent({ 
+                        rule_concise: !(agent.rule_concise ?? false) 
+                      })}
+                      className={`relative w-12 h-6 rounded-full transition-colors ${
+                        (agent.rule_concise ?? false) ? 'bg-cyan-500' : 'bg-slate-700'
+                      }`}
+                    >
+                      <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                        (agent.rule_concise ?? false) ? 'translate-x-6' : ''
+                      }`} />
+                    </button>
+                  </div>
+                  <p className="text-xs text-slate-500 mb-2">
+                    STRICT RULE: Keep all responses under 2 sentences unless the user asks for detailed information. Be direct and efficient.
+                  </p>
+                  <code className="text-xs bg-slate-950 px-2 py-1 rounded text-cyan-300">
+                    ENFORCE: response.length &lt;= 2 sentences; MAX_WORDS = 50;
+                  </code>
+                </div>
+
+                {/* Custom Rules Textarea */}
+                <div className="pt-4 border-t border-slate-800">
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Custom Hard Rules
+                  </label>
+                  <p className="text-xs text-slate-500 mb-2">
+                    Add any additional strict rules. Each line becomes a hard constraint.
+                  </p>
+                  <textarea
+                    value={agent.custom_rules || ''}
+                    onChange={(e) => setAgent({ ...agent, custom_rules: e.target.value })}
+                    onBlur={() => handleUpdateAgent({ custom_rules: agent.custom_rules })}
+                    rows={6}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-cyan-500 font-mono text-sm"
+                    placeholder="- NEVER mention competitors&#10;- ALWAYS ask for phone number before pricing&#10;- If user is angry, escalate to human immediately"
+                  />
                 </div>
               </div>
             </div>

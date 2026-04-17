@@ -111,13 +111,17 @@ export default function Messages() {
   }, [loadMessages])
 
   const loadConversationMessages = (phone: string, msgs: any[]) => {
-    const formattedMessages: Message[] = msgs.map(msg => ({
-      id: msg.id,
-      text: msg.content,
-      // Fix: 'user' messages should be on right, 'bot' messages on left
-      sender: msg.sender === 'bot' ? 'agent' : 'user',
-      time: new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    }))
+    const formattedMessages: Message[] = msgs.map(msg => {
+      // AI messages have agent_id or fromMe=true or sender='ai'/'assistant'/'bot'
+      const isAgent = msg.agent_id || msg.fromMe || ['ai', 'assistant', 'bot', 'agent'].includes(msg.sender?.toLowerCase())
+      return {
+        id: msg.id,
+        text: msg.content,
+        // User messages on RIGHT (cyan), Agent messages on LEFT (green)
+        sender: isAgent ? 'agent' : 'user',
+        time: new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      }
+    })
     setMessages(formattedMessages)
   }
 
