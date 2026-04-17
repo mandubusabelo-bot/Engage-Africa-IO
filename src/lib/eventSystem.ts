@@ -58,9 +58,12 @@ export class EventSystem {
       for (const flow of flows) {
         const trigger = flow.trigger as any
         
-        if (trigger?.type === 'event' && trigger?.event) {
+        // Support both old format (trigger.type === 'event') and new format (trigger.event directly)
+        const triggerEvent = trigger?.event || (trigger?.type === 'event' ? trigger?.eventType : null)
+        
+        if (triggerEvent) {
           // Check if the flow's event matches the emitted event
-          if (this.eventMatches(trigger.event, eventType)) {
+          if (this.eventMatches(triggerEvent, eventType)) {
             console.log(`Triggering flow "${flow.name}" for event: ${eventType}`)
             await flowExecutor.executeFlow(flow.id, {
               ...data,

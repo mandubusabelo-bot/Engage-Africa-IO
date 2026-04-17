@@ -1,4 +1,5 @@
 import { supabaseAdmin } from './supabase-server'
+import { emitConversationOpened, emitAgentAssigned, emitWhatsAppMessageReceived, emitWhatsAppMessageSent } from './workflowTriggers'
 
 // Retrieve knowledge base content for an agent
 async function getKnowledgeBaseContext(agentId: string | null): Promise<string | null> {
@@ -117,6 +118,9 @@ export async function sendWhatsAppReply(phone: string, message: string): Promise
 
 export async function handleIncomingWhatsApp(phone: string, message: string, pushName?: string): Promise<void> {
   console.log(`[AI Handler] Processing message from ${phone}: ${message}`)
+  
+  // Emit message received trigger
+  await emitWhatsAppMessageReceived(phone, message, pushName)
 
   // Get or create contact
   let { data: contact } = await supabaseAdmin
@@ -143,6 +147,11 @@ export async function handleIncomingWhatsApp(phone: string, message: string, pus
     
     contact = newContacts?.[0] || { name: contactName, phone }
     console.log(`[AI Handler] New contact created: ${contact.name}`)
+    
+    // Emit conversation opened trigger
+    if (contact.id) {
+      await emitConversationOpened(contact.id, phone)
+    }
   } else {
     // Update last message time and name if provided
     await supabaseAdmin
@@ -184,6 +193,11 @@ export async function handleIncomingWhatsApp(phone: string, message: string, pus
         .update({ assigned_agent_id: agent.id })
         .eq('phone', phone)
       console.log(`[AI Handler] Assigned agent ${agent.name} to contact ${contact.name}`)
+      
+      // Emit agent assigned trigger
+      if (contact.id) {
+        await emitAgentAssigned(contact.id, agent.id, agent.name)
+      }
     }
   }
 
@@ -215,4 +229,7 @@ export async function handleIncomingWhatsApp(phone: string, message: string, pus
 
   // Send back via WhatsApp
   await sendWhatsAppReply(phone, aiResponse)
+  
+  // Emit message sent trigger
+  await emitWhatsAppMessageSent(phone, aiResponse)
 }
