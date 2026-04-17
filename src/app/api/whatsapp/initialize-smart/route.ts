@@ -50,20 +50,31 @@ export async function POST() {
           )
           console.log('[Evolution] instanceExists:', instanceExists)
 
-          if (!instanceExists) {
-            // Create instance
-            const createResponse = await fetch(`${evolutionApiUrl}/instance/create`, {
-              method: 'POST',
+          // Delete existing instance if it exists to ensure fresh QR
+          if (instanceExists) {
+            console.log('[Evolution] Deleting existing instance:', instanceName)
+            const deleteResponse = await fetch(`${evolutionApiUrl}/instance/delete/${instanceName}`, {
+              method: 'DELETE',
               headers: {
-                'apikey': evolutionApiKey,
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({
-                instanceName,
-                integration: 'WHATSAPP-BAILEYS',
-                qrcode: true
-              })
+                'apikey': evolutionApiKey
+              }
             })
+            console.log('[Evolution] Delete status:', deleteResponse.status)
+          }
+
+          // Create fresh instance
+          const createResponse = await fetch(`${evolutionApiUrl}/instance/create`, {
+            method: 'POST',
+            headers: {
+              'apikey': evolutionApiKey,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              instanceName,
+              integration: 'WHATSAPP-BAILEYS',
+              qrcode: true
+            })
+          })
 
             console.log('[Evolution] createInstance status:', createResponse.status)
             if (createResponse.ok) {
@@ -89,52 +100,6 @@ export async function POST() {
                     warning: 'Scan QR code to connect'
                   }
                 })
-              }
-            }
-          } else {
-            // Instance exists, get connection state
-            const stateResponse = await fetch(`${evolutionApiUrl}/instance/connectionState/${instanceName}`, {
-              headers: {
-                'apikey': evolutionApiKey
-              }
-            })
-
-            if (stateResponse.ok) {
-              const stateData = await stateResponse.json()
-              const isConnected = stateData.instance?.state === 'open' || stateData.state === 'open'
-
-              if (isConnected) {
-                await registerWebhook()
-                return NextResponse.json({
-                  success: true,
-                  data: {
-                    status: 'connected',
-                    mode: 'evolution_api',
-                    instanceName,
-                    warning: null
-                  }
-                })
-              } else {
-                // Get QR code for reconnection
-                const qrResponse = await fetch(`${evolutionApiUrl}/instance/connect/${instanceName}`, {
-                  headers: {
-                    'apikey': evolutionApiKey
-                  }
-                })
-
-                if (qrResponse.ok) {
-                  const qrData = await qrResponse.json()
-                  return NextResponse.json({
-                    success: true,
-                    data: {
-                      status: 'qr_ready',
-                      mode: 'evolution_api',
-                      qrCode: qrData.base64 || qrData.qrcode,
-                      instanceName,
-                      warning: 'Scan QR code to reconnect'
-                    }
-                  })
-                }
               }
             }
           }
