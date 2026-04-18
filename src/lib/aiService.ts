@@ -430,7 +430,12 @@ BOOKING/CONSULTATION:
 ESCALATION:
 - Hand over to the team for: payments, disputes, refunds, or if no progress after 2-3 attempts.
 - For sensitive/personal topics: Say "Hi mama, I will respond to you shortly." and hand over.
-- Always end by offering more help or assigning to human if complex.`
+- Always end by offering more help or assigning to human if complex.
+
+CRITICAL — ORDER COMPLETION RULE:
+- NEVER tell the customer their order has been "processed", "confirmed", or is "ready for collection" unless you include a REAL payment link (URL starting with https://).
+- If you don't have a payment link, DO NOT confirm the order. Instead say: "Pop, I have all your details ✅✅✅✅ Let me process your order and send you a payment link shortly."
+- The system will automatically create the order and generate a payment link when all details are collected. Do NOT fake or hallucinate order confirmations.`
 
   // Execute enabled agent actions (API/Webhook/Human handoff/etc.) and inject results
   if (agent?.id) {
@@ -508,12 +513,13 @@ Once payment is confirmed, your order will be ready for collection within 1-3 bu
     }
   } else {
     // Check if there's partial purchase intent - ask for missing info
-    const partialDetails = extractOrderDetails(message + ' ' + history.map((m: any) => m.content).join(' '), [])
-    const hasPurchaseKeywords = /(?:buy|purchase|order|get|want|nehla|inhlanhla|isichitho|vitality)/i.test(message)
+    const hasPurchaseKeywords = /(?:buy|purchase|order|get|want|nehla|inhlanhla|isichitho|vitality|umaxosha|mavula|umuthi|protection|love|luck|skin)/i.test(
+      message + ' ' + history.filter((m: any) => m.sender === 'user' || m.sender === 'contact').map((m: any) => m.content).join(' ')
+    )
     
-    if (hasPurchaseKeywords && !partialDetails) {
+    if (hasPurchaseKeywords) {
       const missing = getMissingInfo({
-        productName: message.match(/(?:nehla|inhlanhla|isichitho|vitality|love|luck|fertility|skin)/i)?.[0] || ''
+        productName: (message + ' ' + history.map((m: any) => m.content).join(' ')).match(/(?:nehla|inhlanhla|isichitho|vitality|love|luck|fertility|skin|umaxosha|mavula|umuthi|protection)/i)?.[0] || ''
       })
       
       if (missing.length > 0) {

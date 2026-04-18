@@ -98,93 +98,146 @@ export async function createOrderFromConversation(
 }
 
 // Extract order details from conversation using pattern matching
+// Scans the FULL conversation history (all user messages) to piece together details
 export function extractOrderDetails(message: string, history: any[]): OrderDetails | null {
-  const fullText = message.toLowerCase()
-  
-  // Check for purchase intent keywords
+  // Combine all USER messages from history + current message
+  const userMessages = history
+    .filter((m: any) => m.sender === 'user' || m.sender === 'contact')
+    .map((m: any) => m.content)
+  userMessages.push(message)
+  const allUserText = userMessages.join(' ')
+  const allUserTextLower = allUserText.toLowerCase()
+
+  // Also include agent messages for context (e.g. agent asked "what product?" and user replied)
+  const allText = history.map((m: any) => m.content).join(' ') + ' ' + message
+  const allTextLower = allText.toLowerCase()
+
+  // Check for purchase intent keywords across entire conversation
   const purchaseKeywords = [
     'buy', 'purchase', 'order', 'want', 'like to get', 'interested in',
     'get umuthi', 'buy umuthi', 'order umuthi', 'nehla', 'inhlanhla',
-    'isichitho', 'skin', 'love', 'luck', 'fertility', 'utshwala'
+    'isichitho', 'vitality', 'utshwala', 'mavula kuvaliwe', 'umaxosha',
+    'umuthi', 'protection', 'fertility', 'love potion', 'luck',
+    'skin', 'glowing', 'dark spots', 'pimples'
   ]
   
-  const hasPurchaseIntent = purchaseKeywords.some(kw => fullText.includes(kw))
+  const hasPurchaseIntent = purchaseKeywords.some(kw => allUserTextLower.includes(kw))
   
   if (!hasPurchaseIntent) {
     return null
   }
 
-  // Try to extract product name
-  const productPatterns = [
-    /(?:buy|purchase|order|get)\s+(?:umuthi\s+)?(?:we?)?(?:z)?([a-z\s]+?)(?:\s+for|\s+to|\.|,|$)/i,
-    /(?:interested\s+in|want)\s+(?:the\s+)?(?:umuthi\s+)?(?:we?)?(?:z)?([a-z\s]+?)(?:\s+for|\s+to|\.|,|$)/i,
-    /(?:nehla|inhlanhla|isichitho|vitality|love|luck|fertility)/i
+  // Try to extract product name from user messages
+  const knownProducts = [
+    'umaxosha islwane', 'umaxosha', 'mavula kuvaliwe', 'inhlanhla',
+    'isichitho', 'nehla', 'vitality', 'love potion', 'fertility',
+    'protection', 'skin glow', 'dark spot', 'umuthi wenhlanhla',
+    'umuthi wothando', 'umuthi wokuvika'
   ]
 
   let productName = ''
-  for (const pattern of productPatterns) {
-    const match = message.match(pattern)
-    if (match) {
-      productName = match[1] || match[0]
+  for (const product of knownProducts) {
+    if (allUserTextLower.includes(product)) {
+      productName = product
       break
     }
   }
 
   if (!productName) {
-    productName = 'umuthi wenhlanhla' // default fallback
+    // Try regex extraction
+    const productPatterns = [
+      /(?:buy|purchase|order|get|want)\s+(?:the\s+)?(?:umuthi\s+)?(?:we?)?(?:z)?([a-z\s]{3,30})(?:\s+for|\s+to|\.|,|$)/i,
+      /(?:interested\s+in)\s+(?:the\s+)?(?:umuthi\s+)?([a-z\s]{3,30})(?:\s+for|\s+to|\.|,|$)/i,
+    ]
+    for (const pattern of productPatterns) {
+      const match = allUserText.match(pattern)
+      if (match && match[1]) {
+        productName = match[1].trim()
+        break
+      }
+    }
   }
 
-  // Extract customer info from history and current message
+  if (!productName) return null  // Can't create order without a product
+
+  // Extract customer info across ALL user messages
   let customerName = ''
   let customerPhone = ''
   let deliveryLocation = ''
   let pepStoreCode = ''
   let deliveryMethod: 'pep' | 'mall' | 'courier' = 'pep'
 
-  // Combine all messages for extraction
-  const allText = history.map(m => m.content).join(' ') + ' ' + message
-
-  // Extract name - look for patterns like "name is" or "i am"
+  // Extract name — check each user message individually for better matching
   const namePatterns = [
-    /(?:name\s+(?:is\s+)?|i\s+am\s+|call\s+me\s+)([a-z\s]+?)(?:\s+and|\s+my|\.|,|$)/i,
-    /^([a-z\s]+?)(?:\s+\d|\s+pep|\s+mall|\.|,|$)/im
+    /(?:my\s+name\s+is|name\s+is|i\s+am|i'm|call\s+me)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})/i,
+    /(?:name|surname)[:\s]+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})/i,
   ]
-  
-  for (const pattern of namePatterns) {
-    const match = allText.match(pattern)
-    if (match && match[1] && match[1].trim().length > 2) {
-      customerName = match[1].trim()
+  for (const msg of userMessages) {
+    for (const pattern of namePatterns) {
+      const match = msg.match(pattern)
+      if (match && match[1] && match[1].trim().length > 2) {
+        customerName = match[1].trim()
+        break
+      }
+    }
+    if (customerName) break
+  }
+  // Fallback: look for capitalized two-word names in user messages
+  if (!customerName) {
+    for (const msg of userMessages) {
+      const capMatch = msg.match(/^([A-Z][a-z]+\s+[A-Z][a-z]+)$/m)
+      if (capMatch) {
+        customerName = capMatch[1]
+        break
+      }
+    }
+  }
+
+  // Extract phone — South African format, scan all messages
+  for (const msg of userMessages) {
+    const phoneMatch = msg.match(/(0[6-8]\d{8})/)
+    if (phoneMatch) {
+      customerPhone = phoneMatch[1]
       break
     }
   }
 
-  // Extract phone - South African format
-  const phoneMatch = allText.match(/(0[6-8]\d{8})/)
-  if (phoneMatch) {
-    customerPhone = phoneMatch[1]
-  }
-
-  // Extract delivery location
-  if (allText.includes('pep')) {
-    deliveryMethod = 'pep'
-    const pepMatch = allText.match(/pep\s+(?:store\s+)?([a-z\s]+?)(?:\s+p\d|\.|,|$)/i)
-    const codeMatch = allText.match(/p\d{3,}/i)
-    if (pepMatch) {
-      deliveryLocation = 'PEP Store ' + pepMatch[1].trim()
+  // Extract delivery location — scan all messages
+  for (const msg of userMessages) {
+    const msgLower = msg.toLowerCase()
+    if (msgLower.includes('pep')) {
+      deliveryMethod = 'pep'
+      const pepMatch = msg.match(/pep\s+(?:store\s+)?([a-z\s]+?)(?:\s+p\d|\.|,|$)/i)
+      const codeMatch = msg.match(/[Pp]\d{3,}/)
+      if (pepMatch) deliveryLocation = 'PEP Store ' + pepMatch[1].trim()
+      if (codeMatch) pepStoreCode = codeMatch[0].toUpperCase()
+      if (deliveryLocation) break
+    } else if (msgLower.includes('mall')) {
+      deliveryMethod = 'mall'
+      const mallMatch = msg.match(/([a-z\s]+?)\s+mall/i)
+      if (mallMatch) {
+        deliveryLocation = mallMatch[1].trim() + ' Mall'
+        break
+      }
     }
+  }
+  // Also check combined text for Pep code if we got a location but no code
+  if (deliveryLocation && !pepStoreCode) {
+    const codeMatch = allUserText.match(/[Pp]\d{3,}/)
+    if (codeMatch) pepStoreCode = codeMatch[0].toUpperCase()
+  }
+  // Location fallback — look for Pep code anywhere even without "pep" keyword
+  if (!deliveryLocation) {
+    const codeMatch = allUserText.match(/[Pp]\d{3,}/)
     if (codeMatch) {
       pepStoreCode = codeMatch[0].toUpperCase()
-    }
-  } else if (allText.includes('mall')) {
-    deliveryMethod = 'mall'
-    const mallMatch = allText.match(/([a-z\s]+?)\s+mall/i)
-    if (mallMatch) {
-      deliveryLocation = mallMatch[1].trim() + ' Mall'
+      deliveryLocation = `PEP Store (${pepStoreCode})`
+      deliveryMethod = 'pep'
     }
   }
 
-  // If we have enough info, return the details
-  if (customerName && customerPhone && deliveryLocation) {
+  // Only return if we have ALL required details
+  if (customerName && customerPhone && deliveryLocation && productName) {
     return {
       productName: productName.trim(),
       quantity: 1,
