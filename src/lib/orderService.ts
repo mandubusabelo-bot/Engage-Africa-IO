@@ -166,32 +166,69 @@ export function extractOrderDetails(message: string, history: any[]): OrderDetai
     return null
   }
 
-  // Try to extract product name from user messages
-  const knownProducts = [
-    'umaxosha islwane', 'umaxosha', 'mavula kuvaliwe', 'inhlanhla',
-    'isichitho', 'nehla', 'vitality', 'love potion', 'fertility',
-    'protection', 'skin glow', 'dark spot', 'umuthi wenhlanhla',
-    'umuthi wothando', 'umuthi wokuvika'
-  ]
+  // Product synonym mapping - common terms -> actual product names in Intandokazi
+  const productSynonyms: Record<string, string> = {
+    'umaxosha': 'umaxosha islwane',
+    'umaxosislwane': 'umaxosha islwane',
+    'umaxosha islwane': 'umaxosha islwane',
+    'mavula': 'mavula kuvaliwe',
+    'mavula kuvaliwe': 'mavula kuvaliwe',
+    'nehla': 'inhlanhla',
+    'inhlanhla': 'inhlanhla',
+    'isichitho': 'isichitho',
+    'vitality': 'vitality',
+    'love': 'love potion',
+    'love potion': 'love potion',
+    'fertility': 'fertility',
+    'protection': 'protection',
+    'skin glow': 'skin glow',
+    'dark spot': 'dark spot',
+    'pimples': 'skin glow',
+    'umuthi': 'umuthi wenhlanhla',
+    'umuthi wenhlanhla': 'umuthi wenhlanhla',
+    'umuthi wothando': 'umuthi wothando',
+    'umuthi wokuvika': 'umuthi wokuvika'
+  }
 
-  let productName = ''
-  for (const product of knownProducts) {
-    if (allUserTextLower.includes(product)) {
-      productName = product
+  // Try to extract product name from user messages
+  const knownProducts = Object.keys(productSynonyms)
+
+  let matchedKeyword = ''
+  for (const keyword of knownProducts) {
+    if (allUserTextLower.includes(keyword)) {
+      matchedKeyword = keyword
       break
     }
   }
 
+  // Get canonical product name from synonym map
+  let productName = matchedKeyword ? productSynonyms[matchedKeyword] : ''
+
+  // If no direct match, try regex extraction and clean it up
   if (!productName) {
-    // Try regex extraction
     const productPatterns = [
-      /(?:buy|purchase|order|get|want)\s+(?:the\s+)?(?:umuthi\s+)?(?:we?)?(?:z)?([a-z\s]{3,30})(?:\s+for|\s+to|\.|,|$)/i,
-      /(?:interested\s+in)\s+(?:the\s+)?(?:umuthi\s+)?([a-z\s]{3,30})(?:\s+for|\s+to|\.|,|$)/i,
+      /(?:buy|purchase|order|get|want|need)\s+(?:the\s+)?(?:umuthi\s+)?(?:we?)?(?:z)?([a-z\s]{3,40})(?:\s+for|\s+to|\s+please|\.|,|\?|$)/i,
+      /(?:interested\s+in|looking\s+for|want)\s+(?:the\s+)?(?:umuthi\s+)?([a-z\s]{3,40})(?:\s+for|\s+to|\.|,|\?|$)/i,
     ]
     for (const pattern of productPatterns) {
       const match = allUserText.match(pattern)
       if (match && match[1]) {
-        productName = match[1].trim()
+        let extracted = match[1].trim().toLowerCase()
+        // Clean up common noise words
+        extracted = extracted
+          .replace(/\b(for|one|the|a|an|some|me|my|please|want)\b/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+        // Check if cleaned extract matches a synonym
+        for (const [keyword, canonical] of Object.entries(productSynonyms)) {
+          if (extracted.includes(keyword) || keyword.includes(extracted)) {
+            productName = canonical
+            break
+          }
+        }
+        if (!productName && extracted.length > 2) {
+          productName = extracted
+        }
         break
       }
     }
