@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Layout from '@/components/Layout'
-import { MessageSquare, Users, TrendingUp, Clock, Plus, User, Bot, Zap, FileText, QrCode, Smartphone, RefreshCw } from 'lucide-react'
+import { MessageSquare, Users, TrendingUp, Clock, Plus, User, Bot, Zap, FileText, QrCode, Smartphone, RefreshCw, Power, Trash2, RotateCcw, Plug } from 'lucide-react'
 import { api } from '@/lib/api'
 
 export default function Dashboard() {
@@ -29,6 +29,7 @@ export default function Dashboard() {
     apiKey: '',
     instanceName: ''
   })
+  const [managingInstance, setManagingInstance] = useState(false)
 
   useEffect(() => {
     loadDashboardData()
@@ -96,6 +97,32 @@ export default function Dashboard() {
       setWhatsAppNotice(`Configuration failed: ${error.message || 'Unknown error'}`)
     } finally {
       setInitializingWhatsApp(false)
+    }
+  }
+
+  const handleManageInstance = async (action: 'restart' | 'logout' | 'delete' | 'connect') => {
+    try {
+      setManagingInstance(true)
+      setWhatsAppNotice(`Executing ${action}...`)
+      
+      const response = await api.manageWhatsAppInstance(action)
+      
+      if (response.success) {
+        setWhatsAppNotice(`${action} completed successfully.`)
+        if (action === 'restart' || action === 'connect') {
+          setTimeout(() => handleRefreshWhatsApp(), 2000)
+        }
+        if (action === 'logout' || action === 'delete') {
+          setWhatsappStatus(null)
+        }
+      } else {
+        setWhatsAppNotice(`${action} failed: ${response.error || 'Unknown error'}`)
+      }
+    } catch (error: any) {
+      console.error(`Instance ${action} failed:`, error)
+      setWhatsAppNotice(`${action} failed: ${error.message || 'Unknown error'}`)
+    } finally {
+      setManagingInstance(false)
     }
   }
 
@@ -266,12 +293,47 @@ export default function Dashboard() {
                   {whatsappStatus?.mode === 'evolution_api' ? 'Evolution API' : 'WhatsApp Business API'}
                 </p>
                 <p className="text-slate-300">Your AI agents are now handling WhatsApp messages.</p>
-                <button
-                  onClick={handleRefreshWhatsApp}
-                  className="mt-3 text-xs text-emerald-300 hover:text-emerald-200 transition-colors"
-                >
-                  Refresh Status
-                </button>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    onClick={handleRefreshWhatsApp}
+                    className="px-3 py-2 text-xs text-emerald-300 hover:text-emerald-200 transition-colors bg-emerald-500/10 border border-emerald-500/30 rounded-lg"
+                  >
+                    <RefreshCw size={14} className="inline mr-1" />
+                    Refresh Status
+                  </button>
+                  <button
+                    onClick={() => handleManageInstance('restart')}
+                    disabled={managingInstance}
+                    className="px-3 py-2 text-xs text-amber-300 hover:text-amber-200 transition-colors bg-amber-500/10 border border-amber-500/30 rounded-lg disabled:opacity-50"
+                  >
+                    <RotateCcw size={14} className="inline mr-1" />
+                    Restart Instance
+                  </button>
+                  <button
+                    onClick={() => handleManageInstance('connect')}
+                    disabled={managingInstance}
+                    className="px-3 py-2 text-xs text-cyan-300 hover:text-cyan-200 transition-colors bg-cyan-500/10 border border-cyan-500/30 rounded-lg disabled:opacity-50"
+                  >
+                    <Plug size={14} className="inline mr-1" />
+                    Reconnect
+                  </button>
+                  <button
+                    onClick={() => handleManageInstance('logout')}
+                    disabled={managingInstance}
+                    className="px-3 py-2 text-xs text-slate-300 hover:text-slate-200 transition-colors bg-slate-700/30 border border-slate-600/30 rounded-lg disabled:opacity-50"
+                  >
+                    <Power size={14} className="inline mr-1" />
+                    Logout
+                  </button>
+                  <button
+                    onClick={() => handleManageInstance('delete')}
+                    disabled={managingInstance}
+                    className="px-3 py-2 text-xs text-rose-300 hover:text-rose-200 transition-colors bg-rose-500/10 border border-rose-500/30 rounded-lg disabled:opacity-50"
+                  >
+                    <Trash2 size={14} className="inline mr-1" />
+                    Delete Instance
+                  </button>
+                </div>
               </div>
             ) : whatsappStatus?.qrCode ? (
               <div className="space-y-3">
@@ -306,6 +368,32 @@ export default function Dashboard() {
                     Cancel
                   </button>
                 </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    onClick={() => handleManageInstance('restart')}
+                    disabled={managingInstance}
+                    className="px-3 py-2 text-xs text-amber-300 hover:text-amber-200 transition-colors bg-amber-500/10 border border-amber-500/30 rounded-lg disabled:opacity-50"
+                  >
+                    <RotateCcw size={14} className="inline mr-1" />
+                    Restart Instance
+                  </button>
+                  <button
+                    onClick={() => handleManageInstance('logout')}
+                    disabled={managingInstance}
+                    className="px-3 py-2 text-xs text-slate-300 hover:text-slate-200 transition-colors bg-slate-700/30 border border-slate-600/30 rounded-lg disabled:opacity-50"
+                  >
+                    <Power size={14} className="inline mr-1" />
+                    Logout
+                  </button>
+                  <button
+                    onClick={() => handleManageInstance('delete')}
+                    disabled={managingInstance}
+                    className="px-3 py-2 text-xs text-rose-300 hover:text-rose-200 transition-colors bg-rose-500/10 border border-rose-500/30 rounded-lg disabled:opacity-50"
+                  >
+                    <Trash2 size={14} className="inline mr-1" />
+                    Delete Instance
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="text-center py-8">
@@ -328,6 +416,32 @@ export default function Dashboard() {
                     </span>
                   )}
                 </button>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    onClick={() => handleManageInstance('connect')}
+                    disabled={managingInstance}
+                    className="px-3 py-2 text-xs text-cyan-300 hover:text-cyan-200 transition-colors bg-cyan-500/10 border border-cyan-500/30 rounded-lg disabled:opacity-50"
+                  >
+                    <Plug size={14} className="inline mr-1" />
+                    Reconnect Existing
+                  </button>
+                  <button
+                    onClick={() => handleManageInstance('restart')}
+                    disabled={managingInstance}
+                    className="px-3 py-2 text-xs text-amber-300 hover:text-amber-200 transition-colors bg-amber-500/10 border border-amber-500/30 rounded-lg disabled:opacity-50"
+                  >
+                    <RotateCcw size={14} className="inline mr-1" />
+                    Restart Instance
+                  </button>
+                  <button
+                    onClick={() => handleManageInstance('delete')}
+                    disabled={managingInstance}
+                    className="px-3 py-2 text-xs text-rose-300 hover:text-rose-200 transition-colors bg-rose-500/10 border border-rose-500/30 rounded-lg disabled:opacity-50"
+                  >
+                    <Trash2 size={14} className="inline mr-1" />
+                    Delete Instance
+                  </button>
+                </div>
               </div>
             )}
           </div>
