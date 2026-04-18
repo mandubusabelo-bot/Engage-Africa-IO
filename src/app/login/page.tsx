@@ -4,12 +4,10 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Eye, EyeOff, AlertTriangle } from 'lucide-react'
-import { supabase } from '@/lib/supabase'
+import { hasSupabasePublicEnv, supabase } from '@/lib/supabase'
 import Image from 'next/image'
 
-// Check if Supabase is properly configured
-const isSupabaseConfigured = process.env.NEXT_PUBLIC_SUPABASE_URL &&
-  !process.env.NEXT_PUBLIC_SUPABASE_URL.includes('placeholder')
+const isSupabaseConfigured = hasSupabasePublicEnv
 
 export default function LoginPage() {
   const router = useRouter()
@@ -86,7 +84,7 @@ export default function LoginPage() {
             <AlertTriangle size={16} className="mt-0.5 flex-shrink-0" />
             <div>
               <p className="font-medium">Configuration Error</p>
-              <p>Supabase is not properly configured. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY during build.</p>
+              <p>Public Supabase env vars were missing during build. Login will use fallback project defaults, but you should still set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY on your host and redeploy.</p>
             </div>
           </div>
         )}
