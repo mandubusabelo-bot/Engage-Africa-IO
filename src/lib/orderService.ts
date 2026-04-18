@@ -80,14 +80,37 @@ export async function createOrderFromConversation(
     }
 
     // Create order via API
-    const orderResponse = await fetch(`${siteUrl}/api/agent/orders/prepare`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-agent-secret': apiSecret
-      },
-      body: JSON.stringify(orderPayload)
-    })
+    const orderUrl = `${siteUrl}/api/agent/orders/prepare`
+    const payloadJson = JSON.stringify(orderPayload)
+    const payloadBuffer = Buffer.from(payloadJson, 'utf8')
+
+    let orderResponse: Response
+    try {
+      orderResponse = await fetch(orderUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-agent-secret': apiSecret
+        },
+        body: payloadBuffer
+      })
+    } catch (postErr: any) {
+      const causeCode = postErr?.cause?.code || postErr?.code
+      if (causeCode === 'UND_ERR_REQ_CONTENT_LENGTH_MISMATCH') {
+        console.warn('[Order Service] Content-length mismatch on order POST, retrying once...')
+        await new Promise((resolve) => setTimeout(resolve, 300))
+        orderResponse = await fetch(orderUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-agent-secret': apiSecret
+          },
+          body: payloadBuffer
+        })
+      } else {
+        throw postErr
+      }
+    }
 
     const orderData = await orderResponse.json()
 
@@ -106,7 +129,7 @@ export async function createOrderFromConversation(
 
   } catch (error: any) {
     console.error('[Order Service] Error:', error)
-    return { success: false, error: error.message }
+    return { success: false, error: error?.cause?.code ? `${error.message} (${error.cause.code})` : error.message }
   }
 }
 
