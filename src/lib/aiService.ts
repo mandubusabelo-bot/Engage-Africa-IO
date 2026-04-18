@@ -89,10 +89,18 @@ export async function getAIResponseWithHistory(messages: Message[]): Promise<str
       const { GoogleGenerativeAI } = await import('@google/generative-ai')
       const genAI = new GoogleGenerativeAI(geminiKey)
       const systemMsg = messages.find(m => m.role === 'system')?.content || ''
-      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash', systemInstruction: systemMsg })
+      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+      
+      // Prepend system message to first user message
       const chatHistory = messages
         .filter(m => m.role !== 'system')
         .map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }))
+      
+      // Add system instruction as first message if present
+      if (systemMsg && chatHistory.length > 0) {
+        chatHistory[0].parts[0].text = `${systemMsg}\n\nUser: ${chatHistory[0].parts[0].text}`
+      }
+      
       const chat = model.startChat({ history: chatHistory.slice(0, -1) })
       const lastMsg = chatHistory[chatHistory.length - 1]?.parts[0]?.text || ''
       const result = await chat.sendMessage(lastMsg)
