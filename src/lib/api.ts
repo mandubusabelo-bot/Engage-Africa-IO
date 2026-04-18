@@ -234,6 +234,25 @@ export const api = {
     return handleResponse(response)
   },
 
+  async getWhatsAppInstances() {
+    const response = await fetch(`${API_URL}/whatsapp/instances`, {
+      headers: { 'Authorization': `Bearer ${await getToken()}` }
+    })
+    return handleResponse(response)
+  },
+
+  async manageWhatsAppInstance(action: 'create' | 'connect' | 'logout' | 'restart' | 'delete', instanceName?: string) {
+    const response = await fetch(`${API_URL}/whatsapp/instances`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${await getToken()}`
+      },
+      body: JSON.stringify({ action, instanceName })
+    })
+    return handleResponse(response)
+  },
+
   // Contacts
   async getContacts() {
     const token = await getToken()

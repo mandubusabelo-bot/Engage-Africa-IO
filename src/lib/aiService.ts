@@ -281,13 +281,31 @@ export async function handleIncomingWhatsApp(phone: string, message: string, pus
   console.log(`[AI Handler] Using agent: ${agentName} for contact: ${contactName}`)
 
   // Check if conversation has already been greeted
-  const { data: convMeta } = await supabaseAdmin
+  const { data: convMeta, error: convMetaError } = await supabaseAdmin
     .from('conversations')
-    .select('greeting_sent')
+    .select('id, greeting_sent')
     .eq('contact_phone', phone)
-    .single()
+    .maybeSingle()
 
-  const greetingSent = convMeta?.greeting_sent === true
+  if (convMetaError) {
+    console.error('[AI Handler] Failed to fetch conversation greeting status:', convMetaError)
+  }
+
+  let greetingSent = convMeta?.greeting_sent === true
+
+  // Fallback check: if we have previously sent any agent message, do not greet again
+  if (!greetingSent) {
+    const { data: priorAgentMessages } = await supabaseAdmin
+      .from('messages')
+      .select('id')
+      .eq('phone', phone)
+      .in('sender', ['agent', 'ai', 'bot'])
+      .limit(1)
+
+    greetingSent = (priorAgentMessages?.length || 0) > 0
+  }
+
+  let sentGreetingThisTurn = false
 
   // Send greeting DIRECTLY (not through LLM) for new contacts
   if (!greetingSent && agent?.greeting_message) {
@@ -303,13 +321,35 @@ export async function handleIncomingWhatsApp(phone: string, message: string, pus
     await sendWhatsAppReply(phone, greeting)
     await emitWhatsAppMessageSent(phone, greeting)
 
-    // Mark conversation as greeted
-    await supabaseAdmin
-      .from('conversations')
-      .upsert({ contact_phone: phone, greeting_sent: true }, { onConflict: 'contact_phone' })
+    sentGreetingThisTurn = true
+    greetingSent = true
 
-    console.log(`[AI Handler] Greeting sent directly, skipping LLM for this turn`)
-    return
+    // Mark conversation as greeted (non-blocking best effort)
+    if (convMeta?.id) {
+      const { error: markError } = await supabaseAdmin
+        .from('conversations')
+        .update({ greeting_sent: true })
+        .eq('id', convMeta.id)
+
+      if (markError) {
+        console.error('[AI Handler] Failed to mark existing conversation as greeted:', markError)
+      }
+    } else {
+      const { error: insertConversationError } = await supabaseAdmin
+        .from('conversations')
+        .insert({
+          contact_phone: phone,
+          contact_name: contactName,
+          greeting_sent: true,
+          status: 'open'
+        })
+
+      if (insertConversationError) {
+        console.error('[AI Handler] Failed to create conversation greeting marker:', insertConversationError)
+      }
+    }
+
+    console.log('[AI Handler] Greeting sent; continuing with AI response for the same user message')
   }
 
   // Build enhanced system prompt — LLM never sees a greeting instruction
@@ -381,7 +421,16 @@ export async function handleIncomingWhatsApp(phone: string, message: string, pus
       content: msg.content
     })
   })
-  messages.push({ role: 'user', content: message })
+
+  const lastHistoryMessage = history[history.length - 1]
+  const messageAlreadyInHistory =
+    lastHistoryMessage &&
+    (lastHistoryMessage.sender === 'user' || lastHistoryMessage.sender === 'contact') &&
+    lastHistoryMessage.content === message
+
+  if (!messageAlreadyInHistory) {
+    messages.push({ role: 'user', content: message })
+  }
 
   // Generate AI response
   const aiResponse = await getAIResponseWithHistory(messages)
@@ -400,4 +449,8 @@ export async function handleIncomingWhatsApp(phone: string, message: string, pus
 
   // Emit message sent trigger
   await emitWhatsAppMessageSent(phone, aiResponse)
+
+  if (sentGreetingThisTurn) {
+    console.log('[AI Handler] Completed first-contact flow: greeting + AI response sent')
+  }
 }
