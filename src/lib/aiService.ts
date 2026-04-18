@@ -88,12 +88,12 @@ export async function getAIResponseWithHistory(messages: Message[]): Promise<str
     try {
       const { GoogleGenerativeAI } = await import('@google/generative-ai')
       const genAI = new GoogleGenerativeAI(geminiKey)
-      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
       const systemMsg = messages.find(m => m.role === 'system')?.content || ''
+      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash', systemInstruction: systemMsg })
       const chatHistory = messages
         .filter(m => m.role !== 'system')
         .map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }))
-      const chat = model.startChat({ history: chatHistory.slice(0, -1), systemInstruction: systemMsg })
+      const chat = model.startChat({ history: chatHistory.slice(0, -1) })
       const lastMsg = chatHistory[chatHistory.length - 1]?.parts[0]?.text || ''
       const result = await chat.sendMessage(lastMsg)
       return result.response.text()
