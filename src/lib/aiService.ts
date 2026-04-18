@@ -544,11 +544,24 @@ Please send proof of payment if doing EFT. Your order will be ready within 1-3 b
       })
       
       if (missing.length > 0) {
-        const askForDetails = `I'd be happy to help you with your order! To complete your purchase, please provide:
+        // Ask for ONLY the first missing detail, not all at once
+        const firstMissing = missing[0]
+        let askForDetails = ''
 
-${missing.map(m => `• ${m}`).join('\n')}
-
-For example: "My name is John Smith, my number is 0821234567, and I want to collect at PEP store Pinetown P1234"`
+        if (firstMissing.includes('product')) {
+          askForDetails = `Pop! Which product would you like to order? 🌿`
+        } else if (firstMissing.includes('name')) {
+          askForDetails = `Pop! ✅ Please send me your full name and surname.`
+        } else if (firstMissing.includes('phone') || firstMissing.includes('cell')) {
+          askForDetails = `Pop! ✅ What cellphone number should we send your delivery message to?`
+        } else if (firstMissing.includes('location') || firstMissing.includes('PEP')) {
+          askForDetails = `Pop! ✅ How would you like to collect your order?
+• Pep store — send me the store name or code
+• Mall or other collection point
+• Courier to your address`
+        } else {
+          askForDetails = `Pop! Please provide: ${firstMissing}`
+        }
 
         await supabaseAdmin.from('messages').insert({
           agent_id: agent?.id || null,
