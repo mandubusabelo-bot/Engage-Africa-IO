@@ -509,7 +509,18 @@ Once payment is confirmed, your order will be ready for collection within 1-3 bu
       return
     } else {
       console.error(`[AI Handler] Order creation failed:`, orderResult.error)
-      // Continue with normal AI response but include error context
+      const orderFailedMsg = `Pop, I have your details ✅✅✅✅\n\nI couldn't place your order right now due to a system issue (${orderResult.error || 'temporary error'}). Please wait a moment while I retry, or I can hand this over to the team to process immediately.`
+
+      await supabaseAdmin.from('messages').insert({
+        agent_id: agent?.id || null,
+        content: orderFailedMsg,
+        sender: 'agent',
+        phone: phone
+      })
+
+      await sendWhatsAppReply(phone, orderFailedMsg)
+      await emitWhatsAppMessageSent(phone, orderFailedMsg)
+      return
     }
   } else {
     // Check if there's partial purchase intent - ask for missing info

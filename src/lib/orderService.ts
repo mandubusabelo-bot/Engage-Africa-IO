@@ -17,12 +17,21 @@ interface OrderResult {
   error?: string
 }
 
+function getIntandokaziBaseUrl(): string {
+  const raw =
+    process.env.INTANDOKAZI_SITE_URL ||
+    process.env.NEXT_PUBLIC_INTANDOKAZI_SITE_URL ||
+    'https://intandokaziherbal.co.za'
+
+  return raw.replace(/\/$/, '')
+}
+
 export async function createOrderFromConversation(
   phone: string,
   details: OrderDetails
 ): Promise<OrderResult> {
   try {
-    const siteUrl = process.env.NEXT_SITE_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://intandokaziherbal.co.za'
+    const siteUrl = getIntandokaziBaseUrl()
     const apiSecret = process.env.AGENT_API_SECRET
 
     if (!apiSecret) {
@@ -37,7 +46,11 @@ export async function createOrderFromConversation(
     })
 
     if (!searchResponse.ok) {
-      return { success: false, error: 'Failed to search products' }
+      const errText = await searchResponse.text().catch(() => '')
+      return {
+        success: false,
+        error: `Failed to search products (${searchResponse.status})${errText ? `: ${errText.slice(0, 180)}` : ''}`
+      }
     }
 
     const searchData = await searchResponse.json()
@@ -298,7 +311,7 @@ interface BookingCheckResult {
 
 export async function checkBookingAvailability(days: number = 7): Promise<AvailabilityResult> {
   try {
-    const siteUrl = process.env.NEXT_SITE_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://intandokaziherbal.co.za'
+    const siteUrl = getIntandokaziBaseUrl()
     const apiSecret = process.env.AGENT_API_SECRET
 
     if (!apiSecret) {
@@ -338,7 +351,7 @@ export async function createBooking(details: {
   notes?: string
 }): Promise<BookingResult> {
   try {
-    const siteUrl = process.env.NEXT_SITE_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://intandokaziherbal.co.za'
+    const siteUrl = getIntandokaziBaseUrl()
     const apiSecret = process.env.AGENT_API_SECRET
 
     if (!apiSecret) {
@@ -379,7 +392,7 @@ export async function createBooking(details: {
 
 export async function checkBookingsForPhone(phone: string): Promise<BookingCheckResult> {
   try {
-    const siteUrl = process.env.NEXT_SITE_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://intandokaziherbal.co.za'
+    const siteUrl = getIntandokaziBaseUrl()
     const apiSecret = process.env.AGENT_API_SECRET
 
     if (!apiSecret) {
@@ -411,7 +424,7 @@ export async function checkBookingsForPhone(phone: string): Promise<BookingCheck
 
 export async function checkOrderStatus(orderRef: string): Promise<{ success: boolean; order?: any; error?: string }> {
   try {
-    const siteUrl = process.env.NEXT_SITE_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://intandokaziherbal.co.za'
+    const siteUrl = getIntandokaziBaseUrl()
     const apiSecret = process.env.AGENT_API_SECRET
 
     if (!apiSecret) {
