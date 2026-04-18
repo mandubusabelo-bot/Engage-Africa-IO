@@ -143,8 +143,12 @@ export async function sendWhatsAppReply(phone: string, message: string): Promise
     return
   }
 
+  const sendUrl = `${evolutionApiUrl}/message/sendText/${instanceName}`
+  console.log(`[WhatsApp] Sending to: ${sendUrl}`)
+  console.log(`[WhatsApp] Phone: ${phone}, Message length: ${message.length}`)
+
   try {
-    const response = await fetch(`${evolutionApiUrl}/message/sendText/${instanceName}`, {
+    const response = await fetch(sendUrl, {
       method: 'POST',
       headers: {
         'apikey': evolutionApiKey,
@@ -153,14 +157,15 @@ export async function sendWhatsAppReply(phone: string, message: string): Promise
       body: JSON.stringify({ number: phone, text: message })
     })
 
+    console.log(`[WhatsApp] Response status: ${response.status}`)
     const data = await response.json()
     if (response.ok) {
-      console.log('[WhatsApp] Reply sent to', phone)
+      console.log('[WhatsApp] Reply sent to', phone, '- Response:', JSON.stringify(data).slice(0, 100))
     } else {
-      console.error('[WhatsApp] Send failed:', JSON.stringify(data))
+      console.error('[WhatsApp] Send failed:', response.status, JSON.stringify(data))
     }
   } catch (err: any) {
-    console.error('[WhatsApp] Send error:', err.message)
+    console.error('[WhatsApp] Send error:', err.message, '- Type:', err.name)
   }
 }
 
