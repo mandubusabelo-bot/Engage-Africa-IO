@@ -32,18 +32,43 @@ export async function PUT(
 
     // Update each action
     const updatePromises = actions.map(async (action: any) => {
-      const { data, error } = await supabaseAdmin
+      const basePayload = {
+        is_enabled: action.is_enabled,
+        trigger_condition: action.trigger_condition,
+        instruction: action.instruction,
+        priority: action.priority,
+        updated_at: new Date().toISOString()
+      }
+
+      const payloadWithConfig = {
+        ...basePayload,
+        config: action.config ?? null
+      }
+
+      let data: any = null
+      let error: any = null
+
+      const withConfigResult = await supabaseAdmin
         .from('agent_actions')
-        .update({
-          is_enabled: action.is_enabled,
-          trigger_condition: action.trigger_condition,
-          instruction: action.instruction,
-          priority: action.priority,
-          updated_at: new Date().toISOString()
-        })
+        .update(payloadWithConfig)
         .eq('id', action.id)
         .select()
         .single()
+
+      data = withConfigResult.data
+      error = withConfigResult.error
+
+      if (error && String(error.message || '').toLowerCase().includes("column 'config'")) {
+        const fallbackResult = await supabaseAdmin
+          .from('agent_actions')
+          .update(basePayload)
+          .eq('id', action.id)
+          .select()
+          .single()
+
+        data = fallbackResult.data
+        error = fallbackResult.error
+      }
 
       if (error) throw error
       return data
@@ -66,18 +91,42 @@ export async function POST(
   try {
     const actionData = await request.json()
 
-    const { data, error } = await supabaseAdmin
+    const basePayload = {
+      agent_id: params.id,
+      action_type: actionData.action_type,
+      is_enabled: actionData.is_enabled ?? false,
+      trigger_condition: actionData.trigger_condition || '',
+      instruction: actionData.instruction || '',
+      priority: actionData.priority || 'medium'
+    }
+
+    const payloadWithConfig = {
+      ...basePayload,
+      config: actionData.config ?? null
+    }
+
+    let data: any = null
+    let error: any = null
+
+    const withConfigResult = await supabaseAdmin
       .from('agent_actions')
-      .insert({
-        agent_id: params.id,
-        action_type: actionData.action_type,
-        is_enabled: actionData.is_enabled ?? false,
-        trigger_condition: actionData.trigger_condition || '',
-        instruction: actionData.instruction || '',
-        priority: actionData.priority || 'medium'
-      })
+      .insert(payloadWithConfig)
       .select()
       .single()
+
+    data = withConfigResult.data
+    error = withConfigResult.error
+
+    if (error && String(error.message || '').toLowerCase().includes("column 'config'")) {
+      const fallbackResult = await supabaseAdmin
+        .from('agent_actions')
+        .insert(basePayload)
+        .select()
+        .single()
+
+      data = fallbackResult.data
+      error = fallbackResult.error
+    }
 
     if (error) throw error
 

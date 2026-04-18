@@ -1,6 +1,7 @@
 import { supabaseAdmin } from './supabase-server'
 import { emitConversationOpened, emitAgentAssigned, emitWhatsAppMessageReceived, emitWhatsAppMessageSent } from './workflowTriggers'
 import { createOrderFromConversation, extractOrderDetails, getMissingInfo, updateContactFromOrder } from './orderService'
+import { runAgentActions } from './agentActions'
 
 // Retrieve knowledge base content for an agent
 async function getKnowledgeBaseContext(agentId: string | null): Promise<string | null> {
@@ -402,6 +403,27 @@ export async function handleIncomingWhatsApp(phone: string, message: string, pus
 
   // Order handling instructions
   systemPrompt += `\n\nORDER HANDLING: When a customer wants to buy a product, you must collect: 1) Their full name, 2) Cellphone number, 3) Collection location (PEP store with code like P1234, or mall name). Once they provide all details, acknowledge their order and tell them a payment link will be sent. Do NOT say "order processed for collection" without a payment link.`
+
+  // Execute enabled agent actions (API/Webhook/Human handoff/etc.) and inject results
+  if (agent?.id) {
+    const actionResults = await runAgentActions({
+      agentId: agent.id,
+      phone,
+      message
+    })
+
+    if (actionResults.length > 0) {
+      const actionContext = actionResults
+        .map((result) => {
+          const base = `- ${result.actionType}: ${result.success ? 'success' : 'failed'} (${result.summary})`
+          if (!result.data) return base
+          return `${base}\n  data: ${JSON.stringify(result.data).slice(0, 500)}`
+        })
+        .join('\n')
+
+      systemPrompt += `\n\nAUTOMATION ACTION RESULTS (latest message):\n${actionContext}\nUse these results in your response when relevant.`
+    }
+  }
 
   systemPrompt += `\n\nYou are speaking with ${contactName}.`
 

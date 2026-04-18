@@ -10,16 +10,42 @@ export async function PUT(
     const updates = await request.json()
     const { id: agentId, actionId } = params
 
-    const { data, error } = await supabaseAdmin
+    const basePayload = {
+      ...updates,
+      updated_at: new Date().toISOString()
+    }
+
+    const payloadWithConfig = {
+      ...basePayload,
+      config: updates.config ?? null
+    }
+
+    let data: any = null
+    let error: any = null
+
+    const withConfigResult = await supabaseAdmin
       .from('agent_actions')
-      .update({
-        ...updates,
-        updated_at: new Date().toISOString()
-      })
+      .update(payloadWithConfig)
       .eq('id', actionId)
       .eq('agent_id', agentId)
       .select()
       .single()
+
+    data = withConfigResult.data
+    error = withConfigResult.error
+
+    if (error && String(error.message || '').toLowerCase().includes("column 'config'")) {
+      const fallbackResult = await supabaseAdmin
+        .from('agent_actions')
+        .update(basePayload)
+        .eq('id', actionId)
+        .eq('agent_id', agentId)
+        .select()
+        .single()
+
+      data = fallbackResult.data
+      error = fallbackResult.error
+    }
 
     if (error) throw error
 

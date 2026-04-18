@@ -31,15 +31,21 @@ interface AgentAction {
   trigger_condition: string
   instruction: string
   priority: 'low' | 'medium' | 'high'
+  config?: Record<string, any> | null
 }
 
 const ACTION_TYPES = [
   { type: 'close_conversation', label: 'Close conversations', icon: CheckCircle },
   { type: 'assign_to_agent', label: 'Assign to agent/team', icon: User },
+  { type: 'assign_to_human', label: 'Assign to human operator', icon: User },
   { type: 'update_lifecycle', label: 'Update lifecycle stages', icon: RefreshCw },
   { type: 'update_contact_field', label: 'Update contact fields', icon: Sliders },
   { type: 'update_tags', label: 'Update tags', icon: Sparkles },
   { type: 'trigger_workflow', label: 'Trigger workflows', icon: Play },
+  { type: 'notify_dispatch', label: 'Notify dispatch team', icon: MessageSquare },
+  { type: 'product_lookup', label: 'Lookup products via API', icon: ShoppingCart },
+  { type: 'create_booking', label: 'Create booking via API', icon: Clock },
+  { type: 'webhook_call', label: 'Call webhook', icon: Brain },
   { type: 'add_comment', label: 'Add comments', icon: MessageSquare },
   { type: 'handle_call', label: 'Handle calls', icon: User },
   { type: 'http_request', label: 'Make HTTP requests', icon: Brain },
@@ -151,7 +157,8 @@ export default function AgentDetail() {
           is_enabled: false,
           trigger_condition: '',
           instruction: '',
-          priority: 'medium'
+          priority: 'medium',
+          config: {}
         }))
         setActions(defaultActions)
       }
@@ -283,6 +290,15 @@ export default function AgentDetail() {
       console.error('Failed to update action:', error)
       showToast('Failed to update action', 'error')
     }
+  }
+
+  const handleUpdateActionConfig = async (actionId: string, configUpdates: Record<string, any>) => {
+    const currentAction = actions.find(a => a.id === actionId)
+    const mergedConfig = {
+      ...(currentAction?.config || {}),
+      ...configUpdates
+    }
+    await handleUpdateAction(actionId, { config: mergedConfig })
   }
 
   const handleUpdateKbSettings = async (kbId: string, settings: Partial<KnowledgeItem>) => {
@@ -863,6 +879,70 @@ export default function AgentDetail() {
                                 placeholder="What the agent should do when triggered"
                               />
                             </div>
+
+                            {(action.action_type === 'http_request' || action.action_type === 'webhook_call' || action.action_type === 'product_lookup' || action.action_type === 'create_booking') && (
+                              <>
+                                <div>
+                                  <label className="block text-xs font-medium text-slate-400 mb-1">
+                                    Endpoint URL
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={action.config?.url || ''}
+                                    onChange={(e) => handleUpdateActionConfig(action.id, { url: e.target.value })}
+                                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"
+                                    placeholder="https://api.example.com/endpoint"
+                                  />
+                                  <p className="text-[11px] text-slate-500 mt-1">Supports variables: {'{{message}}'}, {'{{phone}}'}, {'{{query}}'}</p>
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-medium text-slate-400 mb-1">
+                                    HTTP Method
+                                  </label>
+                                  <select
+                                    value={action.config?.method || 'POST'}
+                                    onChange={(e) => handleUpdateActionConfig(action.id, { method: e.target.value })}
+                                    className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-cyan-500"
+                                  >
+                                    <option value="GET">GET</option>
+                                    <option value="POST">POST</option>
+                                    <option value="PUT">PUT</option>
+                                    <option value="PATCH">PATCH</option>
+                                  </select>
+                                </div>
+                              </>
+                            )}
+
+                            {action.action_type === 'notify_dispatch' && (
+                              <div>
+                                <label className="block text-xs font-medium text-slate-400 mb-1">
+                                  Dispatch Message Template
+                                </label>
+                                <textarea
+                                  value={action.config?.messageTemplate || ''}
+                                  onChange={(e) => handleUpdateActionConfig(action.id, { messageTemplate: e.target.value })}
+                                  rows={2}
+                                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"
+                                  placeholder="Dispatch alert for {{phone}}: {{message}}"
+                                />
+                              </div>
+                            )}
+
+                            {action.action_type === 'assign_to_human' && (
+                              <div>
+                                <label className="block text-xs font-medium text-slate-400 mb-1">
+                                  Human Agent ID
+                                </label>
+                                <input
+                                  type="text"
+                                  value={action.config?.humanAgentId || ''}
+                                  onChange={(e) => handleUpdateActionConfig(action.id, { humanAgentId: e.target.value })}
+                                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"
+                                  placeholder="UUID of human support agent"
+                                />
+                              </div>
+                            )}
+
                             <div className="flex items-center gap-3">
                               <div>
                                 <label className="block text-xs font-medium text-slate-400 mb-1">
@@ -1174,7 +1254,7 @@ export default function AgentDetail() {
 
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-2">
-                    When agent doesn't know the answer
+                    When agent doesn&apos;t know the answer
                   </label>
                   <select
                     value={agent.unknown_answer_action || 'fallback'}
@@ -1301,7 +1381,7 @@ export default function AgentDetail() {
                     </button>
                   </div>
                   <p className="text-xs text-slate-500 mb-2">
-                    STRICT RULE: When a contact has previous conversation history, NEVER send greeting messages like "Hello", "Hi", "Sawubona", or any introduction. Continue naturally from previous context.
+                    STRICT RULE: When a contact has previous conversation history, NEVER send greeting messages like &quot;Hello&quot;, &quot;Hi&quot;, &quot;Sawubona&quot;, or any introduction. Continue naturally from previous context.
                   </p>
                   <code className="text-xs bg-slate-950 px-2 py-1 rounded text-cyan-300">
                     ENFORCE: if (contact.hasHistory) SKIP_GREETING = true;
