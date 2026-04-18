@@ -363,6 +363,9 @@ export async function handleIncomingWhatsApp(phone: string, message: string, pus
   // Build enhanced system prompt — LLM never sees a greeting instruction
   let systemPrompt = agent?.system_prompt || 'You are a helpful AI assistant.'
 
+  // Log the agent's system prompt from database
+  console.log('[AI Handler] Agent system prompt from database:', agent?.system_prompt ? agent.system_prompt.substring(0, 500) + '...' : 'Not found')
+
   // Agent identity
   if (agent?.agent_name) {
     systemPrompt += `\n\nYour name is ${agent.agent_name}.`
@@ -429,6 +432,9 @@ export async function handleIncomingWhatsApp(phone: string, message: string, pus
   }
 
   systemPrompt += `\n\nYou are speaking with ${contactName}.`
+
+  // Log the full system prompt for debugging
+  console.log('[AI Handler] Full system prompt being sent to LLM:', systemPrompt)
 
   // Fetch recent message history for context
   const { data: recentMessages } = await supabaseAdmin
