@@ -466,7 +466,7 @@ CRITICAL — ORDER COMPLETION RULE:
     .select('content, sender, created_at')
     .eq('phone', phone)
     .order('created_at', { ascending: false })
-    .limit(10)
+    .limit(30)
 
   const history = (recentMessages || []).reverse()
 
@@ -513,13 +513,32 @@ Once payment is confirmed, your order will be ready for collection within 1-3 bu
     }
   } else {
     // Check if there's partial purchase intent - ask for missing info
-    const hasPurchaseKeywords = /(?:buy|purchase|order|get|want|nehla|inhlanhla|isichitho|vitality|umaxosha|mavula|umuthi|protection|love|luck|skin)/i.test(
-      message + ' ' + history.filter((m: any) => m.sender === 'user' || m.sender === 'contact').map((m: any) => m.content).join(' ')
-    )
+    const userHistoryText = history
+      .filter((m: any) => m.sender === 'user' || m.sender === 'contact')
+      .map((m: any) => m.content)
+      .join(' ')
+    const combinedUserText = `${userHistoryText} ${message}`
+
+    const hasPurchaseKeywords = /(?:buy|purchase|order|get|want|nehla|inhlanhla|isichitho|vitality|umaxosha|mavula|umuthi|protection|love|luck|skin)/i.test(combinedUserText)
     
     if (hasPurchaseKeywords) {
+      const productMatch = combinedUserText.match(/(?:umaxosha\s+islwane|umaxosha|mavula\s+kuvaliwe|nehla|inhlanhla|isichitho|vitality|love|luck|fertility|skin|umuthi|protection)/i)
+      const nameMatch = combinedUserText.match(/(?:my\s+name\s+is|name\s+is|i\s+am|i'm|call\s+me)\s+([a-z]+(?:\s+[a-z]+){0,2})/i)
+      const phoneMatch = combinedUserText.match(/(0[6-8]\d{8})/)
+      const pepLocationMatch = combinedUserText.match(/pep\s+(?:store\s+)?([a-z\s]+?)(?:\s+[Pp]\d{3,}|\.|,|$)/i)
+      const mallLocationMatch = combinedUserText.match(/([a-z\s]+?)\s+mall/i)
+
+      const extractedLocation = pepLocationMatch
+        ? `PEP Store ${pepLocationMatch[1].trim()}`
+        : mallLocationMatch
+          ? `${mallLocationMatch[1].trim()} Mall`
+          : ''
+
       const missing = getMissingInfo({
-        productName: (message + ' ' + history.map((m: any) => m.content).join(' ')).match(/(?:nehla|inhlanhla|isichitho|vitality|love|luck|fertility|skin|umaxosha|mavula|umuthi|protection)/i)?.[0] || ''
+        productName: productMatch?.[0] || '',
+        customerName: nameMatch?.[1] || '',
+        customerPhone: phoneMatch?.[0] || '',
+        deliveryLocation: extractedLocation
       })
       
       if (missing.length > 0) {

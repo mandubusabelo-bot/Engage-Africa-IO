@@ -108,9 +108,12 @@ export function extractOrderDetails(message: string, history: any[]): OrderDetai
   const allUserText = userMessages.join(' ')
   const allUserTextLower = allUserText.toLowerCase()
 
-  // Also include agent messages for context (e.g. agent asked "what product?" and user replied)
-  const allText = history.map((m: any) => m.content).join(' ') + ' ' + message
-  const allTextLower = allText.toLowerCase()
+  const toTitleCase = (value: string) =>
+    value
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+      .join(' ')
 
   // Check for purchase intent keywords across entire conversation
   const purchaseKeywords = [
@@ -169,25 +172,26 @@ export function extractOrderDetails(message: string, history: any[]): OrderDetai
 
   // Extract name — check each user message individually for better matching
   const namePatterns = [
-    /(?:my\s+name\s+is|name\s+is|i\s+am|i'm|call\s+me)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})/i,
-    /(?:name|surname)[:\s]+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})/i,
+    /(?:my\s+name\s+is|name\s+is|i\s+am|i'm|call\s+me)\s+([a-z]+(?:\s+[a-z]+){0,2})/i,
+    /(?:name|surname)[:\s]+([a-z]+(?:\s+[a-z]+){0,2})/i,
   ]
   for (const msg of userMessages) {
     for (const pattern of namePatterns) {
       const match = msg.match(pattern)
       if (match && match[1] && match[1].trim().length > 2) {
-        customerName = match[1].trim()
+        customerName = toTitleCase(match[1].trim())
         break
       }
     }
     if (customerName) break
   }
-  // Fallback: look for capitalized two-word names in user messages
+
+  // Fallback: look for standalone two-word names in user messages
   if (!customerName) {
     for (const msg of userMessages) {
-      const capMatch = msg.match(/^([A-Z][a-z]+\s+[A-Z][a-z]+)$/m)
-      if (capMatch) {
-        customerName = capMatch[1]
+      const capMatch = msg.match(/^([a-z]+\s+[a-z]+)$/im)
+      if (capMatch && capMatch[1]) {
+        customerName = toTitleCase(capMatch[1])
         break
       }
     }
