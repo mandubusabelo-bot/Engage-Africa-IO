@@ -140,35 +140,17 @@ export async function createOrderFromConversation(
     const orderUrl = `${siteUrl}/api/agent/orders/prepare`
     const payloadJson = JSON.stringify(orderPayload)
 
-    let orderResponse: Response
-    try {
-      orderResponse = await fetch(orderUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-agent-secret': apiSecret,
-          'Content-Length': String(Buffer.byteLength(payloadJson, 'utf8'))
-        },
-        body: payloadJson
-      })
-    } catch (postErr: any) {
-      const causeCode = postErr?.cause?.code || postErr?.code
-      if (causeCode === 'UND_ERR_REQ_CONTENT_LENGTH_MISMATCH') {
-        console.warn('[Order Service] Content-length mismatch on order POST, retrying with fetch fallback...')
-        await new Promise((resolve) => setTimeout(resolve, 500))
-        // Use simple fetch without explicit content-length
-        orderResponse = await fetch(orderUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-agent-secret': apiSecret
-          },
-          body: payloadJson
-        })
-      } else {
-        throw postErr
-      }
-    }
+    console.log(`[Order Service] POSTing to ${orderUrl}`)
+    console.log(`[Order Service] Payload: ${payloadJson.slice(0, 200)}...`)
+
+    const orderResponse = await fetch(orderUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-agent-secret': apiSecret
+      },
+      body: payloadJson
+    })
 
     const orderData = await orderResponse.json()
 
