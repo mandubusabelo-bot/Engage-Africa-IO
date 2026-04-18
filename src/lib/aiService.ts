@@ -409,16 +409,29 @@ export async function handleIncomingWhatsApp(phone: string, message: string, pus
 
   // Order & consultation handling instructions
   systemPrompt += `\n\nORDER HANDLING (LOCAL SALES - CASH/BANK TRANSFER/PEP):
-- When a customer wants to buy a product, collect info ONE BY ONE — do not ask for everything at once:
-  1) Name/Surname
-  2) Cell number
-  3) Pep store name + code (like P1234), OR mall for collection, OR EFT bank transfer
-- When customer provides details: Respond with "Pop" to acknowledge, then continue collecting remaining info.
-- Use ✅✅✅✅ only when confirming that order/details have been sent and are complete.
-- Payment options: Cash on collection at PEP store, OR EFT bank transfer.
-- For EFT: Share the bank account details from your knowledge base (Capitec account holder and account number).
-- For PEP collection: Confirm store name and code clearly.
-- Shipping takes 3-7 business days; expect delivery this week if recent order. Follow up politely if delayed.
+⚠️ CRITICAL: Collect information ONE BY ONE. NEVER ask for multiple details in one message.
+
+CORRECT FLOW (follow exactly):
+- Customer: "I want to buy Umaxoshislwane"
+- You: "Pop! Which PEP store would you like to collect from? Please share the store name and code (like P1234)."
+- Customer: "PEP Pinetown P4505"
+- You: "Pop! ✅ And your full name?"
+- Customer: "John Doe"
+- You: "Pop! ✅ Cellphone number?"
+- Customer: "0681234567"
+- You: "Pop, I have all your details ✅✅✅✅ Your order for Umaxoshislwane is confirmed for collection at PEP Pinetown (P4505). Pay cash on pickup. Your order will be ready in 1-3 days."
+
+❌ WRONG (NEVER DO THIS):
+- Do NOT say: "Please provide: full name, cellphone number, PEP store"
+- Do NOT list multiple requirements in one message
+- Do NOT ask for "all details" or "everything" at once
+
+RULES:
+1. Ask for ONE piece of info at a time
+2. Wait for customer response before asking next
+3. Acknowledge each answer with "Pop" or "Pop! ✅"
+4. Only use ✅✅✅✅ when ALL details are collected and order is confirmed
+5. Payment: Cash on collection at PEP, OR EFT (bank details from knowledge base)
 
 SKIN CONSULTATION:
 - For skin issues (pimples, dark spots, long-term skin problems): ALWAYS ask customer to send a photo of their face/all sides FIRST before recommending any product. Say something like "Please send a photo of the affected area so I can advise you better 📸"
