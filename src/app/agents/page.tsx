@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Layout from '@/components/Layout'
-import { Bot, Plus, Edit, Power, MessageSquare, Trash2 } from 'lucide-react'
+import { Bot, Plus, Power, MessageSquare, Trash2, Edit } from 'lucide-react'
 import { api } from '@/lib/api'
 import InlineToast from '@/components/InlineToast'
 
@@ -25,7 +25,6 @@ export default function Agents() {
   const [agents, setAgents] = useState<Agent[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreateModal, setShowCreateModal] = useState(false)
-  const [showEditModal, setShowEditModal] = useState(false)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null)
   const [newAgent, setNewAgent] = useState({
     name: '',
@@ -34,7 +33,6 @@ export default function Agents() {
     personality: 'professional',
     language: 'english'
   })
-  const [editingAgent, setEditingAgent] = useState<any>(null)
   const [uploading, setUploading] = useState(false)
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
@@ -69,9 +67,15 @@ export default function Agents() {
     try {
       setUploading(true)
       const response = await api.createAgent(newAgent)
-      if (response.success) {
-        await loadAgents()
+      if (response.success && response.data) {
         setShowCreateModal(false)
+        // Navigate to full agent editor immediately
+        const agentId = Array.isArray(response.data) ? response.data[0]?.id : response.data.id
+        if (agentId) {
+          router.push(`/agents/${agentId}`)
+        } else {
+          await loadAgents()
+        }
         setNewAgent({
           name: '',
           description: '',
@@ -83,42 +87,6 @@ export default function Agents() {
     } catch (error) {
       console.error('Failed to create agent:', error)
       alert('Failed to create agent. Please try again.')
-    } finally {
-      setUploading(false)
-    }
-  }
-
-  const handleEditAgent = (agent: any) => {
-    setEditingAgent(agent)
-    setNewAgent({
-      name: agent.name,
-      description: agent.description || '',
-      instructions: agent.instructions || '',
-      personality: agent.personality || 'professional',
-      language: agent.language || 'english'
-    })
-    setShowEditModal(true)
-  }
-
-  const handleUpdateAgent = async () => {
-    try {
-      setUploading(true)
-      const response = await api.updateAgent(editingAgent.id, newAgent)
-      if (response.success) {
-        await loadAgents()
-        setShowEditModal(false)
-        setEditingAgent(null)
-        setNewAgent({
-          name: '',
-          description: '',
-          instructions: '',
-          personality: 'professional',
-          language: 'english'
-        })
-      }
-    } catch (error) {
-      console.error('Failed to update agent:', error)
-      alert('Failed to update agent. Please try again.')
     } finally {
       setUploading(false)
     }
@@ -298,53 +266,44 @@ export default function Agents() {
           ))}
         </div>
 
-        {/* Create Agent Modal */}
+        {/* Create Agent Modal - Quick create, then redirect to full editor */}
         {showCreateModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-2 sm:p-4">
-            <div className="w-full max-w-2xl max-h-[95vh] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-950 p-4 sm:p-8">
-              <h2 className="text-xl sm:text-2xl font-bold text-slate-100 mb-4 sm:mb-6">Create New Agent</h2>
+            <div className="w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-950 p-4 sm:p-8">
+              <h2 className="text-xl sm:text-2xl font-bold text-slate-100 mb-2">Create New Agent</h2>
+              <p className="text-sm text-slate-400 mb-6">Enter the basics — you&apos;ll configure everything else in the full editor.</p>
               
-              <div className="space-y-3 sm:space-y-4">
+              <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">Agent Name</label>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Agent Name *</label>
                   <input
                     type="text"
                     value={newAgent.name}
                     onChange={(e) => setNewAgent({...newAgent, name: e.target.value})}
-                    className="w-full px-3 sm:px-4 py-2 border border-slate-700 bg-slate-900 rounded-lg text-slate-100 focus:ring-2 focus:ring-cyan-500/40 outline-none text-sm sm:text-base"
+                    className="w-full px-3 sm:px-4 py-2.5 border border-slate-700 bg-slate-900 rounded-lg text-slate-100 focus:ring-2 focus:ring-cyan-500/40 outline-none text-sm sm:text-base"
                     placeholder="e.g., Customer Support Bot"
+                    autoFocus
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">Description</label>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Description *</label>
                   <textarea
                     value={newAgent.description}
                     onChange={(e) => setNewAgent({...newAgent, description: e.target.value})}
-                    className="w-full px-3 sm:px-4 py-2 border border-slate-700 bg-slate-900 rounded-lg text-slate-100 focus:ring-2 focus:ring-cyan-500/40 outline-none text-sm sm:text-base"
-                    rows={3}
-                    placeholder="Describe what this agent does and its purpose..."
+                    className="w-full px-3 sm:px-4 py-2.5 border border-slate-700 bg-slate-900 rounded-lg text-slate-100 focus:ring-2 focus:ring-cyan-500/40 outline-none text-sm sm:text-base"
+                    rows={2}
+                    placeholder="Briefly describe what this agent does..."
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">Instructions</label>
-                  <textarea
-                    value={newAgent.instructions}
-                    onChange={(e) => setNewAgent({...newAgent, instructions: e.target.value})}
-                    className="w-full px-3 sm:px-4 py-2 border border-slate-700 bg-slate-900 rounded-lg text-slate-100 focus:ring-2 focus:ring-cyan-500/40 outline-none text-sm sm:text-base"
-                    rows={4}
-                    placeholder="Give step-by-step instructions on how the agent should behave and respond..."
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-sm font-medium text-slate-300 mb-2">Personality</label>
                     <select
                       value={newAgent.personality}
                       onChange={(e) => setNewAgent({...newAgent, personality: e.target.value})}
-                      className="w-full px-3 sm:px-4 py-2 border border-slate-700 bg-slate-900 rounded-lg text-slate-100 focus:ring-2 focus:ring-cyan-500/40 outline-none text-sm sm:text-base"
+                      className="w-full px-3 py-2.5 border border-slate-700 bg-slate-900 rounded-lg text-slate-100 focus:ring-2 focus:ring-cyan-500/40 outline-none text-sm"
                     >
                       <option value="professional">Professional</option>
                       <option value="friendly">Friendly</option>
@@ -354,13 +313,12 @@ export default function Agents() {
                       <option value="enthusiastic">Enthusiastic</option>
                     </select>
                   </div>
-
                   <div>
                     <label className="block text-sm font-medium text-slate-300 mb-2">Language</label>
                     <select
                       value={newAgent.language}
                       onChange={(e) => setNewAgent({...newAgent, language: e.target.value})}
-                      className="w-full px-3 sm:px-4 py-2 border border-slate-700 bg-slate-900 rounded-lg text-slate-100 focus:ring-2 focus:ring-cyan-500/40 outline-none text-sm sm:text-base"
+                      className="w-full px-3 py-2.5 border border-slate-700 bg-slate-900 rounded-lg text-slate-100 focus:ring-2 focus:ring-cyan-500/40 outline-none text-sm"
                     >
                       <option value="english">English</option>
                       <option value="swahili">Swahili</option>
@@ -374,119 +332,26 @@ export default function Agents() {
                 </div>
               </div>
 
-              <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 mt-4 sm:mt-8">
+              <div className="flex gap-3 mt-6">
                 <button
                   onClick={() => setShowCreateModal(false)}
-                  className="flex-1 px-4 py-2 sm:px-6 sm:py-3 border border-slate-700 text-slate-300 rounded-lg font-semibold hover:bg-slate-900 transition-colors text-sm sm:text-base"
+                  className="flex-1 px-4 py-2.5 border border-slate-700 text-slate-300 rounded-lg font-semibold hover:bg-slate-900 transition-colors text-sm"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleCreateAgent}
                   disabled={!newAgent.name || !newAgent.description || uploading}
-                  className="flex-1 px-4 py-2 sm:px-6 sm:py-3 bg-cyan-500 text-slate-950 rounded-lg font-semibold hover:bg-cyan-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base"
+                  className="flex-1 px-4 py-2.5 bg-cyan-500 text-slate-950 rounded-lg font-semibold hover:bg-cyan-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
                 >
-                  {uploading ? 'Creating...' : 'Create Agent'}
+                  {uploading ? 'Creating...' : 'Create & Configure'}
                 </button>
               </div>
             </div>
           </div>
         )}
 
-        {/* Edit Agent Modal */}
-        {showEditModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-2 sm:p-4">
-            <div className="w-full max-w-2xl max-h-[95vh] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-950 p-4 sm:p-8">
-              <h2 className="text-xl sm:text-2xl font-bold text-slate-100 mb-4 sm:mb-6">Edit Agent</h2>
-              
-              <div className="space-y-3 sm:space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">Agent Name</label>
-                  <input
-                    type="text"
-                    value={newAgent.name}
-                    onChange={(e) => setNewAgent({...newAgent, name: e.target.value})}
-                    className="w-full px-3 sm:px-4 py-2 border border-slate-700 bg-slate-900 rounded-lg text-slate-100 focus:ring-2 focus:ring-cyan-500/40 outline-none text-sm sm:text-base"
-                    placeholder="e.g., Customer Support Bot"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">Description</label>
-                  <textarea
-                    value={newAgent.description}
-                    onChange={(e) => setNewAgent({...newAgent, description: e.target.value})}
-                    className="w-full px-3 sm:px-4 py-2 border border-slate-700 bg-slate-900 rounded-lg text-slate-100 focus:ring-2 focus:ring-cyan-500/40 outline-none text-sm sm:text-base"
-                    rows={3}
-                    placeholder="Describe what this agent does and its purpose..."
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">Instructions</label>
-                  <textarea
-                    value={newAgent.instructions}
-                    onChange={(e) => setNewAgent({...newAgent, instructions: e.target.value})}
-                    className="w-full px-3 sm:px-4 py-2 border border-slate-700 bg-slate-900 rounded-lg text-slate-100 focus:ring-2 focus:ring-cyan-500/40 outline-none text-sm sm:text-base"
-                    rows={4}
-                    placeholder="Give step-by-step instructions on how the agent should behave and respond..."
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">Personality</label>
-                    <select
-                      value={newAgent.personality}
-                      onChange={(e) => setNewAgent({...newAgent, personality: e.target.value})}
-                      className="w-full px-3 sm:px-4 py-2 border border-slate-700 bg-slate-900 rounded-lg text-slate-100 focus:ring-2 focus:ring-cyan-500/40 outline-none text-sm sm:text-base"
-                    >
-                      <option value="professional">Professional</option>
-                      <option value="friendly">Friendly</option>
-                      <option value="casual">Casual</option>
-                      <option value="formal">Formal</option>
-                      <option value="empathetic">Empathetic</option>
-                      <option value="enthusiastic">Enthusiastic</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">Language</label>
-                    <select
-                      value={newAgent.language}
-                      onChange={(e) => setNewAgent({...newAgent, language: e.target.value})}
-                      className="w-full px-3 sm:px-4 py-2 border border-slate-700 bg-slate-900 rounded-lg text-slate-100 focus:ring-2 focus:ring-cyan-500/40 outline-none text-sm sm:text-base"
-                    >
-                      <option value="english">English</option>
-                      <option value="swahili">Swahili</option>
-                      <option value="zulu">Zulu</option>
-                      <option value="xhosa">Xhosa</option>
-                      <option value="afrikaans">Afrikaans</option>
-                      <option value="french">French</option>
-                      <option value="portuguese">Portuguese</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 mt-4 sm:mt-8">
-                <button
-                  onClick={() => setShowEditModal(false)}
-                  className="flex-1 px-4 py-2 sm:px-6 sm:py-3 border border-slate-700 text-slate-300 rounded-lg font-semibold hover:bg-slate-900 transition-colors text-sm sm:text-base"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleUpdateAgent}
-                  disabled={!newAgent.name || !newAgent.description || uploading}
-                  className="flex-1 px-4 py-2 sm:px-6 sm:py-3 bg-cyan-500 text-slate-950 rounded-lg font-semibold hover:bg-cyan-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base"
-                >
-                  {uploading ? 'Updating...' : 'Update Agent'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Edit modal removed — editing happens on /agents/[id] full editor page */}
       </div>
     </Layout>
   )
