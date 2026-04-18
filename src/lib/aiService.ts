@@ -1,42 +1,63 @@
+/**
+ * aiService.ts — Refactored
+ * ─────────────────────────
+ * PRINCIPLE: The LLM always writes the reply. The code only:
+ *   1. Fetches context (contact, agent, history, knowledge base, bookings, orders)
+ *   2. Builds a system prompt from the database
+ *   3. Injects context into that prompt
+ *   4. Sends everything to the LLM
+ *   5. Forwards the LLM reply to WhatsApp
+ *
+ * NEVER hardcode customer-facing messages in this file.
+ * All tone, phrasing, and flow logic lives in the agent's system prompt in the database.
+ */
+
 import { supabaseAdmin } from './supabase-server'
-import { emitConversationOpened, emitAgentAssigned, emitWhatsAppMessageReceived, emitWhatsAppMessageSent } from './workflowTriggers'
-import { createOrderFromConversation, extractOrderDetails, getMissingInfo, updateContactFromOrder, checkBookingAvailability, createBooking, checkBookingsForPhone, checkOrderStatus } from './orderService'
+import {
+  emitConversationOpened,
+  emitAgentAssigned,
+  emitWhatsAppMessageReceived,
+  emitWhatsAppMessageSent
+} from './workflowTriggers'
+import {
+  checkBookingAvailability,
+  checkBookingsForPhone,
+  checkOrderStatus
+} from './orderService'
 import { runAgentActions } from './agentActions'
 
-// Retrieve knowledge base content for an agent
-async function getKnowledgeBaseContext(agentId: string | null): Promise<string | null> {
-  if (!agentId) return null
-  
-  try {
-    const { data: kb } = await supabaseAdmin
-      .from('knowledge_base')
-      .select('content')
-      .eq('agent_id', agentId)
-      .limit(3)
-    
-    if (kb && kb.length > 0) {
-      return `Use this knowledge to answer questions:\n${kb.map((k: any) => k.content).join('\n\n')}`
-    }
-    
-    // Try global knowledge base if no agent-specific KB
-    const { data: globalKb } = await supabaseAdmin
-      .from('knowledge_base')
-      .select('content')
-      .is('agent_id', null)
-      .limit(3)
-    
-    if (globalKb && globalKb.length > 0) {
-      return `Use this knowledge to answer questions:\n${globalKb.map((k: any) => k.content).join('\n\n')}`
-    }
-    
-    return null
-  } catch (err) {
-    console.error('[KB] Error fetching knowledge base:', err)
-    return null
-  }
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+interface Message {
+  role: 'system' | 'user' | 'assistant'
+  content: string
 }
 
-export async function getAIResponseWithHistory(messages: Array<{ role: string; content: string }>): Promise<string> {
+interface Agent {
+  id: string
+  agent_name?: string
+  name?: string
+  system_prompt?: string
+  greeting_message?: string
+  tone?: string
+  rule_limit_emojis?: boolean
+  rule_concise?: boolean
+  custom_rules?: string
+  never_say?: string
+  fallback_message?: string
+}
+
+interface Contact {
+  id?: string
+  name?: string
+  phone?: string
+  assigned_agent_id?: string
+  greeting_sent?: boolean
+}
+
+// ─── AI provider ─────────────────────────────────────────────────────────────
+
+export async function getAIResponseWithHistory(messages: Message[]): Promise<string> {
   const openrouterKey = process.env.OPENROUTER_API_KEY
   if (openrouterKey) {
     try {
@@ -54,7 +75,6 @@ export async function getAIResponseWithHistory(messages: Array<{ role: string; c
       })
       const data = await response.json()
       if (data.choices?.[0]?.message?.content) {
-        console.log('[AI] OpenRouter response received')
         return data.choices[0].message.content
       }
       console.error('[AI] OpenRouter unexpected response:', JSON.stringify(data).slice(0, 200))
@@ -70,68 +90,23 @@ export async function getAIResponseWithHistory(messages: Array<{ role: string; c
       const genAI = new GoogleGenerativeAI(geminiKey)
       const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
       const systemMsg = messages.find(m => m.role === 'system')?.content || ''
-      const userMsg = messages[messages.length - 1]?.content || ''
-      const result = await model.generateContent(`${systemMsg}\n\nUser: ${userMsg}`)
-      console.log('[AI] Gemini response received')
+      const chatHistory = messages
+        .filter(m => m.role !== 'system')
+        .map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }))
+      const chat = model.startChat({ history: chatHistory.slice(0, -1), systemInstruction: systemMsg })
+      const lastMsg = chatHistory[chatHistory.length - 1]?.parts[0]?.text || ''
+      const result = await chat.sendMessage(lastMsg)
       return result.response.text()
     } catch (err: any) {
       console.error('[AI] Gemini error:', err.message)
     }
   }
 
-  return `Thank you for your message! Our team will get back to you shortly.`
+  console.warn('[AI] No AI key configured')
+  return `Thank you for your message! Our team will get back to you shortly.` 
 }
 
-export async function getAIResponse(message: string, systemPrompt: string): Promise<string> {
-  // Try OpenRouter first
-  const openrouterKey = process.env.OPENROUTER_API_KEY
-  if (openrouterKey) {
-    try {
-      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${openrouterKey}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://engage-africa.io'
-        },
-        body: JSON.stringify({
-          model: process.env.OPENROUTER_MODEL || 'google/gemini-2.0-flash-exp:free',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: message }
-          ]
-        })
-      })
-
-      const data = await response.json()
-      if (data.choices?.[0]?.message?.content) {
-        console.log('[AI] OpenRouter response received')
-        return data.choices[0].message.content
-      }
-      console.error('[AI] OpenRouter unexpected response:', JSON.stringify(data).slice(0, 200))
-    } catch (err: any) {
-      console.error('[AI] OpenRouter error:', err.message)
-    }
-  }
-
-  // Try Gemini
-  const geminiKey = process.env.GEMINI_API_KEY
-  if (geminiKey) {
-    try {
-      const { GoogleGenerativeAI } = await import('@google/generative-ai')
-      const genAI = new GoogleGenerativeAI(geminiKey)
-      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
-      const result = await model.generateContent(`${systemPrompt}\n\nUser: ${message}`)
-      console.log('[AI] Gemini response received')
-      return result.response.text()
-    } catch (err: any) {
-      console.error('[AI] Gemini error:', err.message)
-    }
-  }
-
-  console.warn('[AI] No AI key configured (OPENROUTER_API_KEY or GEMINI_API_KEY)')
-  return `Thank you for your message! Our team will get back to you shortly.`
-}
+// ─── WhatsApp sender ──────────────────────────────────────────────────────────
 
 export async function sendWhatsAppReply(phone: string, message: string): Promise<void> {
   const evolutionApiUrl = process.env.EVOLUTION_API_URL
@@ -143,165 +118,70 @@ export async function sendWhatsAppReply(phone: string, message: string): Promise
     return
   }
 
-  const sendUrl = `${evolutionApiUrl}/message/sendText/${instanceName}`
-  console.log(`[WhatsApp] Sending to: ${sendUrl}`)
-  console.log(`[WhatsApp] Phone: ${phone}, Message length: ${message.length}`)
-
   try {
-    const response = await fetch(sendUrl, {
+    const response = await fetch(`${evolutionApiUrl}/message/sendText/${instanceName}`, {
       method: 'POST',
-      headers: {
-        'apikey': evolutionApiKey,
-        'Content-Type': 'application/json'
-      },
+      headers: { 'apikey': evolutionApiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({ number: phone, text: message })
     })
-
-    console.log(`[WhatsApp] Response status: ${response.status}`)
     const data = await response.json()
     if (response.ok) {
-      console.log('[WhatsApp] Reply sent to', phone, '- Response:', JSON.stringify(data).slice(0, 100))
+      console.log(`[WhatsApp] Sent to ${phone}`)
     } else {
       console.error('[WhatsApp] Send failed:', response.status, JSON.stringify(data))
     }
   } catch (err: any) {
-    console.error('[WhatsApp] Send error:', err.message, '- Type:', err.name)
+    console.error('[WhatsApp] Send error:', err.message)
   }
 }
 
-export async function handleIncomingWhatsApp(phone: string, message: string, pushName?: string): Promise<void> {
+// ─── Knowledge base ───────────────────────────────────────────────────────────
+
+async function getKnowledgeBaseContext(agentId: string | null): Promise<string | null> {
+  if (!agentId) return null
   try {
-    console.log(`[AI Handler] Processing message from ${phone}: ${message}`)
-    
-    // Emit message received trigger
-    await emitWhatsAppMessageReceived(phone, message, pushName)
+    const { data: kb } = await supabaseAdmin
+      .from('knowledge_base')
+      .select('content')
+      .eq('agent_id', agentId)
+      .limit(5)
 
-  // Get or create contact
-  let { data: contact } = await supabaseAdmin
-    .from('contacts')
-    .select('*')
-    .eq('phone', phone)
-    .single()
-
-  if (!contact) {
-    // Create new contact
-    const contactName = pushName || phone.split('@')[0]
-    let newContacts: any[] | null = null
-    let insertError: any = null
-
-    const primaryInsert = await supabaseAdmin
-      .from('contacts')
-      .insert({
-        phone,
-        name: contactName,
-        last_message_at: new Date().toISOString()
-      })
-      .select()
-
-    if (primaryInsert.error) {
-      const fallbackInsert = await supabaseAdmin
-        .from('contacts')
-        .insert({
-          phone,
-          name: contactName
-        })
-        .select()
-
-      newContacts = fallbackInsert.data
-      insertError = fallbackInsert.error
-    } else {
-      newContacts = primaryInsert.data
-      insertError = null
+    if (kb && kb.length > 0) {
+      return `KNOWLEDGE BASE:\n${kb.map((k: any) => k.content).join('\n\n')}` 
     }
-    
-    if (insertError) {
-      console.error('[AI Handler] Failed to create contact:', insertError)
-    }
-    
-    contact = newContacts?.[0] || { name: contactName, phone }
-    console.log(`[AI Handler] New contact created: ${contact.name}`)
-    
-    // Emit conversation opened trigger
-    if (contact.id) {
-      await emitConversationOpened(contact.id, phone)
-    }
-  } else {
-    // Update last message time and name if provided
-    const primaryUpdate = await supabaseAdmin
-      .from('contacts')
-      .update({
-        last_message_at: new Date().toISOString(),
-        ...(pushName && { name: pushName })
-      })
-      .eq('phone', phone)
 
-    if (primaryUpdate.error) {
-      await supabaseAdmin
-        .from('contacts')
-        .update({
-          ...(pushName && { name: pushName })
-        })
-        .eq('phone', phone)
+    const { data: globalKb } = await supabaseAdmin
+      .from('knowledge_base')
+      .select('content')
+      .is('agent_id', null)
+      .limit(5)
+
+    if (globalKb && globalKb.length > 0) {
+      return `KNOWLEDGE BASE:\n${globalKb.map((k: any) => k.content).join('\n\n')}` 
     }
-    console.log(`[AI Handler] Existing contact: ${contact.name}`)
+  } catch (err) {
+    console.error('[KB] Error fetching knowledge base:', err)
   }
+  return null
+}
 
-  // Get assigned agent or assign one
-  let agentId = contact?.assigned_agent_id
-  let agent = null
+// ─── Context injectors (adds info to system prompt — never writes replies) ────
 
-  if (agentId) {
-    const { data: assignedAgent } = await supabaseAdmin
-      .from('agents')
-      .select('*')
-      .eq('id', agentId)
-      .single()
-    agent = assignedAgent
-  }
-
-  // If no assigned agent, get first available
-  if (!agent) {
-    let { data: agents } = await supabaseAdmin.from('agents').select('*').eq('is_active', true).limit(1)
-    if (!agents || agents.length === 0) {
-      const result = await supabaseAdmin.from('agents').select('*').limit(1)
-      agents = result.data
-    }
-    agent = agents?.[0]
-
-    // Assign agent to contact
-    if (agent && contact) {
-      await supabaseAdmin
-        .from('contacts')
-        .update({ assigned_agent_id: agent.id })
-        .eq('phone', phone)
-      console.log(`[AI Handler] Assigned agent ${agent.name} to contact ${contact.name}`)
-      
-      // Emit agent assigned trigger
-      if (contact.id) {
-        await emitAgentAssigned(contact.id, agent.id, agent.name)
-      }
-    }
-  }
-
-  const agentName = agent?.agent_name || agent?.name || 'AI Assistant'
-  const contactName = contact?.name || phone.split('@')[0]
-
-  console.log(`[AI Handler] Using agent: ${agentName} for contact: ${contactName}`)
-
-  // Check if conversation has already been greeted
-  const { data: convMeta, error: convMetaError } = await supabaseAdmin
+async function injectGreetingRule(
+  systemPrompt: string,
+  phone: string,
+  contactName: string,
+  agent: Agent
+): Promise<{ systemPrompt: string; greetingSent: boolean; sendGreetingNow: boolean }> {
+  // Check if greeting was already sent
+  const { data: convMeta } = await supabaseAdmin
     .from('conversations')
     .select('id, greeting_sent')
     .eq('contact_phone', phone)
     .maybeSingle()
 
-  if (convMetaError) {
-    console.error('[AI Handler] Failed to fetch conversation greeting status:', convMetaError)
-  }
-
   let greetingSent = convMeta?.greeting_sent === true
 
-  // Fallback check: if we have previously sent any agent message, do not greet again
   if (!greetingSent) {
     const { data: priorAgentMessages } = await supabaseAdmin
       .from('messages')
@@ -309,376 +189,284 @@ export async function handleIncomingWhatsApp(phone: string, message: string, pus
       .eq('phone', phone)
       .in('sender', ['agent', 'ai', 'bot'])
       .limit(1)
-
     greetingSent = (priorAgentMessages?.length || 0) > 0
   }
 
-  let sentGreetingThisTurn = false
+  if (!greetingSent) {
+    // Tell the LLM to greet, using the greeting from the database
+    const greetingInstruction = agent.greeting_message
+      ? `GREETING INSTRUCTION: This is the first message from this contact. Start your response with this greeting (replace {{contact.name}} with the actual name): "${agent.greeting_message}". Then directly address what they said.` 
+      : `GREETING INSTRUCTION: This is the first message from this contact. Greet them warmly using the tone defined in your system prompt, then address what they said.` 
 
-  // Send greeting DIRECTLY (not through LLM) for new contacts
-  if (!greetingSent && agent?.greeting_message) {
-    const greeting = agent.greeting_message.replace(/\{\{contact\.name\}\}/g, contactName)
-    console.log(`[AI Handler] Sending direct greeting to ${contactName}`)
+    systemPrompt += `\n\n${greetingInstruction}` 
 
-    await supabaseAdmin.from('messages').insert({
-      agent_id: agent?.id || null,
-      content: greeting,
-      sender: 'agent',
-      phone: phone
-    })
-    await sendWhatsAppReply(phone, greeting)
-    await emitWhatsAppMessageSent(phone, greeting)
-
-    sentGreetingThisTurn = true
-    greetingSent = true
-
-    // Mark conversation as greeted (non-blocking best effort)
+    // Mark as greeted in DB (best effort)
     if (convMeta?.id) {
-      const { error: markError } = await supabaseAdmin
-        .from('conversations')
-        .update({ greeting_sent: true })
-        .eq('id', convMeta.id)
-
-      if (markError) {
-        console.error('[AI Handler] Failed to mark existing conversation as greeted:', markError)
-      }
+      await supabaseAdmin.from('conversations').update({ greeting_sent: true }).eq('id', convMeta.id)
     } else {
-      const { error: insertConversationError } = await supabaseAdmin
-        .from('conversations')
-        .insert({
-          contact_phone: phone,
-          contact_name: contactName,
-          greeting_sent: true,
-          status: 'open'
-        })
-
-      if (insertConversationError) {
-        console.error('[AI Handler] Failed to create conversation greeting marker:', insertConversationError)
-      }
+      await supabaseAdmin.from('conversations').insert({
+        contact_phone: phone,
+        contact_name: contactName,
+        greeting_sent: true,
+        status: 'open'
+      })
     }
 
-    console.log('[AI Handler] Greeting sent; continuing with AI response for the same user message')
+    return { systemPrompt, greetingSent: false, sendGreetingNow: true }
   }
 
-  // Build enhanced system prompt — LLM never sees a greeting instruction
-  let systemPrompt = agent?.system_prompt || 'You are a helpful AI assistant.'
+  // Already greeted — tell LLM not to greet again
+  systemPrompt += `\n\nIMPORTANT: You have already greeted this contact. Do NOT say hello, hi, sawubona, or introduce yourself again. Start your reply by directly addressing what they said.` 
+  return { systemPrompt, greetingSent: true, sendGreetingNow: false }
+}
 
-  // Log the agent's system prompt from database
-  console.log('[AI Handler] Agent system prompt from database:', agent?.system_prompt ? agent.system_prompt.substring(0, 500) + '...' : 'Not found')
+async function injectBookingContext(systemPrompt: string, message: string): Promise<string> {
+  const checkBookingKeywords = /\b(my booking|check booking|booking status|when is my|appointment status)\b/i
+  const bookingKeywords = /\b(book|consultation|consult|appointment|schedule|available|slot|booking)\b/i
 
-  // Agent identity
-  if (agent?.agent_name) {
-    systemPrompt += `\n\nYour name is ${agent.agent_name}.`
-  }
-
-  // Tone
-  if (agent?.tone) {
-    systemPrompt += `\n\nTone: Use a ${agent.tone} tone in all responses.`
-  }
-
-  // HARDCODED anti-greeting rule — always appended, agent cannot override
-  systemPrompt += `\n\nYou have already greeted this contact. Do NOT say hello, hi, sawubona, or introduce yourself again under any circumstances. Do NOT open with a greeting word. Start your reply by directly addressing what the contact said. Check the full conversation history before every response and never repeat yourself.`
-
-  // Emoji rule
-  if (agent?.rule_limit_emojis !== false) {
-    systemPrompt += `\n\nCRITICAL RULE — EMOJI LIMIT: Use maximum 1 emoji per response.`
-  }
-
-  // Concise rule
-  if (agent?.rule_concise) {
-    systemPrompt += `\n\nCRITICAL RULE — BE CONCISE: Keep responses under 2 sentences unless the user asks for detailed information.`
-  }
-
-  // Custom rules
-  if (agent?.custom_rules) {
-    systemPrompt += `\n\nCUSTOM RULES:\n${agent.custom_rules}`
-  }
-
-  // Never say
-  if (agent?.never_say) {
-    systemPrompt += `\n\nNEVER say or use these words/phrases: ${agent.never_say}`
-  }
-
-  // Fallback guidance
-  if (agent?.fallback_message) {
-    systemPrompt += `\n\nIf you cannot answer: ${agent.fallback_message}`
-  }
-
-  // Knowledge base context
-  const knowledgeBase = await getKnowledgeBaseContext(agent?.id)
-  if (knowledgeBase) {
-    systemPrompt += `\n\n${knowledgeBase}`
-  }
-
-  // Execute enabled agent actions (API/Webhook/Human handoff/etc.) and inject results
-  if (agent?.id) {
-    const actionResults = await runAgentActions({
-      agentId: agent.id,
-      phone,
-      message
-    })
-
-    if (actionResults.length > 0) {
-      const actionContext = actionResults
-        .map((result) => {
-          const base = `- ${result.actionType}: ${result.success ? 'success' : 'failed'} (${result.summary})`
-          if (!result.data) return base
-          return `${base}\n  data: ${JSON.stringify(result.data).slice(0, 500)}`
+  if (checkBookingKeywords.test(message)) {
+    // Customer asking about existing booking
+    // Note: phone is not available here — pass it through if needed
+    systemPrompt += `\n\n[CONTEXT] Customer is asking about an existing booking. Ask them for their reference number or phone number if you need to look it up.` 
+  } else if (bookingKeywords.test(message)) {
+    const availResult = await checkBookingAvailability(14)
+    if (availResult.success && availResult.total_slots && availResult.total_slots > 0) {
+      const slotSummary = Object.entries(availResult.availability || {})
+        .slice(0, 5)
+        .map(([date, slots]: [string, any]) => {
+          const dateStr = new Date(date).toLocaleDateString('en-ZA', {
+            weekday: 'short', day: 'numeric', month: 'short'
+          })
+          return `${dateStr}: ${slots.map((s: any) => s.time).join(', ')}` 
         })
         .join('\n')
-
-      systemPrompt += `\n\nAUTOMATION ACTION RESULTS (latest message):\n${actionContext}\nUse these results in your response when relevant.`
-    }
-  }
-
-  systemPrompt += `\n\nYou are speaking with ${contactName}.`
-
-  // Log the full system prompt for debugging
-  console.log('[AI Handler] Full system prompt being sent to LLM:', systemPrompt)
-
-  // Fetch recent message history for context
-  const { data: recentMessages } = await supabaseAdmin
-    .from('messages')
-    .select('content, sender, created_at')
-    .eq('phone', phone)
-    .order('created_at', { ascending: false })
-    .limit(30)
-
-  const history = (recentMessages || []).reverse()
-
-  // ===== ORDER CREATION FLOW =====
-  // Check if user is trying to buy and has provided all details
-  const orderDetails = extractOrderDetails(message, history)
-  
-  if (orderDetails) {
-    console.log(`[AI Handler] Detected purchase intent with complete details:`, orderDetails)
-    
-    // Update contact with extracted information
-    await updateContactFromOrder(phone, orderDetails)
-    
-    // Create order
-    const orderResult = await createOrderFromConversation(phone, orderDetails)
-    
-    if (orderResult.success) {
-      // Build confirmation message - with payment link if available, otherwise local payment
-      let orderConfirmation: string
-      if (orderResult.paymentUrl) {
-        orderConfirmation = `Thank you ${orderDetails.customerName}! 🎉
-
-Your order has been created:
-📦 Product: ${orderDetails.productName}
-📍 Collection: ${orderDetails.deliveryLocation}${orderDetails.pepStoreCode ? ' (' + orderDetails.pepStoreCode + ')' : ''}
-💳 Total: Click here to pay and complete your order: ${orderResult.paymentUrl}
-
-Once payment is confirmed, your order will be ready for collection within 1-3 business days.`
-      } else {
-        orderConfirmation = `Pop, I have all your details ✅✅✅✅
-
-Your order for ${orderDetails.productName} is confirmed!
-📍 Collection: ${orderDetails.deliveryLocation}${orderDetails.pepStoreCode ? ' (' + orderDetails.pepStoreCode + ')' : ''}
-
-Payment options:
-💵 Cash on collection at PEP store
-🏦 OR EFT (bank details - see above in our conversation)
-
-Please send proof of payment if doing EFT. Your order will be ready within 1-3 business days.`
-      }
-
-      // Save order confirmation to DB
-      await supabaseAdmin.from('messages').insert({
-        agent_id: agent?.id || null,
-        content: orderConfirmation,
-        sender: 'agent',
-        phone: phone
-      })
-
-      // Send via WhatsApp
-      await sendWhatsAppReply(phone, orderConfirmation)
-      await emitWhatsAppMessageSent(phone, orderConfirmation)
-      
-      console.log(`[AI Handler] Order ${orderResult.orderRef} created`)
-      return
+      systemPrompt += `\n\n[AVAILABLE CONSULTATION SLOTS — next 14 days, ${availResult.total_slots} total]:\n${slotSummary}\nConsultation fee: R150. To book: need name, phone, preferred date & time.` 
     } else {
-      console.error(`[AI Handler] Order creation failed:`, orderResult.error)
-      const orderFailedMsg = `Pop, I have your details ✅✅✅✅\n\nI couldn't place your order right now due to a system issue (${orderResult.error || 'temporary error'}). Please wait a moment while I retry, or I can hand this over to the team to process immediately.`
-
-      await supabaseAdmin.from('messages').insert({
-        agent_id: agent?.id || null,
-        content: orderFailedMsg,
-        sender: 'agent',
-        phone: phone
-      })
-
-      await sendWhatsAppReply(phone, orderFailedMsg)
-      await emitWhatsAppMessageSent(phone, orderFailedMsg)
-      return
-    }
-  } else {
-    // Check if there's partial purchase intent - ask for missing info
-    const userHistoryText = history
-      .filter((m: any) => m.sender === 'user' || m.sender === 'contact')
-      .map((m: any) => m.content)
-      .join(' ')
-    const combinedUserText = `${userHistoryText} ${message}`
-
-    const hasPurchaseKeywords = /(?:buy|purchase|order|get|want|nehla|inhlanhla|isichitho|vitality|umaxosha|mavula|umuthi|protection|love|luck|skin)/i.test(combinedUserText)
-    
-    if (hasPurchaseKeywords) {
-      const productMatch = combinedUserText.match(/(?:umaxosha\s+islwane|umaxosha|mavula\s+kuvaliwe|nehla|inhlanhla|isichitho|vitality|love|luck|fertility|skin|umuthi|protection)/i)
-      const nameMatch = combinedUserText.match(/(?:my\s+name\s+is|name\s+is|i\s+am|i'm|call\s+me)\s+([a-z]+(?:\s+[a-z]+){0,2})/i)
-      const phoneMatch = combinedUserText.match(/(0[6-8]\d{8})/)
-      const pepLocationMatch = combinedUserText.match(/pep\s+(?:store\s+)?([a-z\s]+?)(?:\s+[Pp]\d{3,}|\.|,|$)/i)
-      const mallLocationMatch = combinedUserText.match(/([a-z\s]+?)\s+mall/i)
-
-      const extractedLocation = pepLocationMatch
-        ? `PEP Store ${pepLocationMatch[1].trim()}`
-        : mallLocationMatch
-          ? `${mallLocationMatch[1].trim()} Mall`
-          : ''
-
-      const missing = getMissingInfo({
-        productName: productMatch?.[0] || '',
-        customerName: nameMatch?.[1] || '',
-        customerPhone: phoneMatch?.[0] || '',
-        deliveryLocation: extractedLocation
-      })
-      
-      if (missing.length > 0) {
-        // Ask for ONLY the first missing detail, not all at once
-        const firstMissing = missing[0]
-        let askForDetails = ''
-
-        if (firstMissing.includes('product')) {
-          askForDetails = `Pop! Which product would you like to order? 🌿`
-        } else if (firstMissing.includes('name')) {
-          askForDetails = `Pop! ✅ Please send me your full name and surname.`
-        } else if (firstMissing.includes('phone') || firstMissing.includes('cell')) {
-          askForDetails = `Pop! ✅ What cellphone number should we send your delivery message to?`
-        } else if (firstMissing.includes('location') || firstMissing.includes('PEP')) {
-          askForDetails = `Pop! ✅ How would you like to collect your order?
-• Pep store — send me the store name or code
-• Mall or other collection point
-• Courier to your address`
-        } else {
-          askForDetails = `Pop! Please provide: ${firstMissing}`
-        }
-
-        await supabaseAdmin.from('messages').insert({
-          agent_id: agent?.id || null,
-          content: askForDetails,
-          sender: 'agent',
-          phone: phone
-        })
-
-        await sendWhatsAppReply(phone, askForDetails)
-        await emitWhatsAppMessageSent(phone, askForDetails)
-        return
-      }
+      systemPrompt += `\n\n[AVAILABILITY] No consultation slots available in the next 14 days. Advise the customer to contact us directly on 062 584 2441.` 
     }
   }
+  return systemPrompt
+}
 
-  // ===== BOOKING & ORDER CHECK FLOWS =====
-  const messageLower = message.toLowerCase()
-
-  // Check for booking intent
-  const bookingKeywords = /\b(book|consultation|consult|appointment|schedule|available|slot|booking)\b/i
-  const checkBookingKeywords = /\b(my booking|check booking|booking status|when is my|appointment status)\b/i
+async function injectOrderContext(systemPrompt: string, message: string, phone: string): Promise<string> {
   const orderCheckKeywords = /\b(order status|track order|where is my order|check my order|order ref|ORD-)\b/i
 
-  if (checkBookingKeywords.test(messageLower)) {
-    console.log('[AI Handler] Detected booking check intent')
-    const bookingResult = await checkBookingsForPhone(phone)
-    if (bookingResult.success && bookingResult.bookings && bookingResult.bookings.length > 0) {
-      const bookingList = bookingResult.bookings.map((b: any) =>
-        `📅 ${b.date} at ${b.time} (${b.type})\n   Status: ${b.booking_status} | Payment: ${b.payment_status}${b.reference ? `\n   Ref: ${b.reference}` : ''}`
-      ).join('\n\n')
-
-      systemPrompt += `\n\n[BOOKING INFO] Customer has ${bookingResult.count} booking(s):\n${bookingList}`
-    } else {
-      systemPrompt += `\n\n[BOOKING INFO] No bookings found for this customer's phone number.`
-    }
-  }
-
-  if (orderCheckKeywords.test(messageLower)) {
-    console.log('[AI Handler] Detected order status check intent')
-    // Try to extract order reference from message
+  if (orderCheckKeywords.test(message)) {
     const orderRefMatch = message.match(/ORD-[A-Z0-9-]+/i)
     if (orderRefMatch) {
       const orderResult = await checkOrderStatus(orderRefMatch[0])
       if (orderResult.success && orderResult.order) {
         const o = orderResult.order
-        systemPrompt += `\n\n[ORDER INFO] Order ${o.order_ref}:\n- Status: ${o.order_status}\n- Payment: ${o.payment_status}\n- Total: R${o.total}\n- Items: ${o.items?.map((i: any) => `${i.quantity}x ${i.product_name}`).join(', ') || 'N/A'}\n- Created: ${new Date(o.created_at).toLocaleDateString('en-ZA')}`
+        systemPrompt += `\n\n[ORDER STATUS for ${o.order_ref}]:\n- Status: ${o.order_status}\n- Payment: ${o.payment_status}\n- Total: R${o.total}\n- Items: ${o.items?.map((i: any) => `${i.quantity}x ${i.product_name}`).join(', ') || 'N/A'}\n- Placed: ${new Date(o.created_at).toLocaleDateString('en-ZA')}` 
       } else {
-        systemPrompt += `\n\n[ORDER INFO] Could not find order with reference "${orderRefMatch[0]}".`
+        systemPrompt += `\n\n[ORDER STATUS] No order found with reference "${orderRefMatch[0]}". Ask the customer to double-check their reference number.` 
       }
     } else {
-      systemPrompt += `\n\n[ORDER INFO] Customer is asking about an order but didn't provide a reference number. Ask them for their order reference (starts with ORD-).`
+      systemPrompt += `\n\n[ORDER STATUS] Customer is asking about an order but hasn't provided a reference number. Ask them for it (format: ORD-XXXXX).` 
     }
   }
+  return systemPrompt
+}
 
-  if (bookingKeywords.test(messageLower) && !checkBookingKeywords.test(messageLower)) {
-    console.log('[AI Handler] Detected booking/availability interest')
-    const availResult = await checkBookingAvailability(14)
-    if (availResult.success && availResult.total_slots && availResult.total_slots > 0) {
-      const slotSummary = Object.entries(availResult.availability || {})
-        .slice(0, 5)
-        .map(([date, slots]) => {
-          const dateStr = new Date(date).toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short' })
-          return `${dateStr}: ${slots.map(s => s.time).join(', ')}`
-        })
-        .join('\n')
+async function injectActionResults(systemPrompt: string, agentId: string, phone: string, message: string): Promise<string> {
+  const actionResults = await runAgentActions({ agentId, phone, message })
+  if (actionResults.length > 0) {
+    const actionContext = actionResults
+      .map((result: any) => {
+        const base = `- ${result.actionType}: ${result.success ? 'success' : 'failed'} (${result.summary})` 
+        return result.data ? `${base}\n  data: ${JSON.stringify(result.data).slice(0, 500)}` : base
+      })
+      .join('\n')
+    systemPrompt += `\n\nAUTOMATION RESULTS:\n${actionContext}` 
+  }
+  return systemPrompt
+}
 
-      systemPrompt += `\n\n[AVAILABLE CONSULTATION SLOTS] (next 14 days, ${availResult.total_slots} slots):\n${slotSummary}\n\nTo book, the customer needs: name, phone, preferred date & time. Consultation fee is R150.`
+// ─── Build system prompt entirely from database ───────────────────────────────
+
+function buildSystemPrompt(agent: Agent, contactName: string): string {
+  // Start with the agent's system prompt from the database — this is the source of truth
+  let prompt = agent?.system_prompt || 'You are a helpful AI assistant.'
+
+  // Append agent identity if defined
+  if (agent?.agent_name) {
+    prompt += `\n\nYour name is ${agent.agent_name}.` 
+  }
+
+  // Tone
+  if (agent?.tone) {
+    prompt += `\n\nTone: ${agent.tone}` 
+  }
+
+  // Emoji rule
+  if (agent?.rule_limit_emojis !== false) {
+    prompt += `\n\nUse a maximum of 1 emoji per response.` 
+  }
+
+  // Concise rule
+  if (agent?.rule_concise) {
+    prompt += `\n\nKeep responses brief unless the user asks for detail.` 
+  }
+
+  // Custom rules from database
+  if (agent?.custom_rules) {
+    prompt += `\n\nADDITIONAL RULES:\n${agent.custom_rules}` 
+  }
+
+  // Never say
+  if (agent?.never_say) {
+    prompt += `\n\nNEVER use: ${agent.never_say}` 
+  }
+
+  // Fallback
+  if (agent?.fallback_message) {
+    prompt += `\n\nIf you cannot help: ${agent.fallback_message}` 
+  }
+
+  prompt += `\n\nYou are speaking with ${contactName}.` 
+
+  return prompt
+}
+
+// ─── Main handler ─────────────────────────────────────────────────────────────
+
+export async function handleIncomingWhatsApp(
+  phone: string,
+  message: string,
+  pushName?: string
+): Promise<void> {
+  try {
+    console.log(`[Handler] Incoming from ${phone}: "${message.slice(0, 80)}"`)
+
+    // Emit incoming trigger
+    await emitWhatsAppMessageReceived(phone, message, pushName)
+
+    // ── 1. Get or create contact ──────────────────────────────────────────────
+    let { data: contact } = await supabaseAdmin
+      .from('contacts')
+      .select('*')
+      .eq('phone', phone)
+      .single()
+
+    const contactName = pushName || contact?.name || phone.split('@')[0]
+
+    if (!contact) {
+      const { data: newContacts } = await supabaseAdmin
+        .from('contacts')
+        .insert({ phone, name: contactName, last_message_at: new Date().toISOString() })
+        .select()
+      contact = newContacts?.[0] || { name: contactName, phone }
+      if (contact?.id) await emitConversationOpened(contact.id, phone)
+      console.log(`[Handler] New contact: ${contactName}`)
     } else {
-      systemPrompt += `\n\n[AVAILABILITY] No consultation slots available in the next 14 days. Advise the customer to check back later or contact via WhatsApp at 062 584 2441.`
+      await supabaseAdmin
+        .from('contacts')
+        .update({ last_message_at: new Date().toISOString(), ...(pushName && { name: pushName }) })
+        .eq('phone', phone)
     }
-  }
 
-  // Build messages array with history
-  const messages: Array<{ role: string; content: string }> = [
-    { role: 'system', content: systemPrompt }
-  ]
-  history.forEach((msg: any) => {
-    messages.push({
-      role: msg.sender === 'agent' || msg.sender === 'ai' ? 'assistant' : 'user',
-      content: msg.content
+    // ── 2. Get or assign agent ────────────────────────────────────────────────
+    let agent: Agent | null = null
+
+    if (contact?.assigned_agent_id) {
+      const { data } = await supabaseAdmin.from('agents').select('*').eq('id', contact.assigned_agent_id).single()
+      agent = data
+    }
+
+    if (!agent) {
+      const { data: agents } = await supabaseAdmin.from('agents').select('*').eq('is_active', true).limit(1)
+      agent = agents?.[0] || null
+
+      if (!agent) {
+        const { data: fallback } = await supabaseAdmin.from('agents').select('*').limit(1)
+        agent = fallback?.[0] || null
+      }
+
+      if (agent && contact?.id) {
+        await supabaseAdmin.from('contacts').update({ assigned_agent_id: agent.id }).eq('phone', phone)
+        await emitAgentAssigned(contact.id, agent.id, agent.agent_name || agent.name || 'Agent')
+      }
+    }
+
+    console.log(`[Handler] Agent: ${agent?.agent_name || agent?.name || 'none'}`)
+
+    // ── 3. Save incoming message to DB ───────────────────────────────────────
+    await supabaseAdmin.from('messages').insert({
+      agent_id: agent?.id || null,
+      content: message,
+      sender: 'user',
+      phone
     })
-  })
 
-  const lastHistoryMessage = history[history.length - 1]
-  const messageAlreadyInHistory =
-    lastHistoryMessage &&
-    (lastHistoryMessage.sender === 'user' || lastHistoryMessage.sender === 'contact') &&
-    lastHistoryMessage.content === message
+    // ── 4. Build system prompt from database agent ────────────────────────────
+    let systemPrompt = buildSystemPrompt(agent || {} as Agent, contactName)
 
-  if (!messageAlreadyInHistory) {
-    messages.push({ role: 'user', content: message })
-  }
+    // ── 5. Inject knowledge base ──────────────────────────────────────────────
+    const knowledgeBase = await getKnowledgeBaseContext(agent?.id || null)
+    if (knowledgeBase) {
+      systemPrompt += `\n\n${knowledgeBase}` 
+    }
 
-  // Generate AI response
-  const aiResponse = await getAIResponseWithHistory(messages)
-  console.log(`[AI Handler] AI response: ${aiResponse.slice(0, 100)}...`)
+    // ── 6. Inject greeting rule (tells LLM whether to greet or not) ───────────
+    const greetingResult = await injectGreetingRule(systemPrompt, phone, contactName, agent || {} as Agent)
+    systemPrompt = greetingResult.systemPrompt
 
-  // Save AI response to DB
-  await supabaseAdmin.from('messages').insert({
-    agent_id: agent?.id || null,
-    content: aiResponse,
-    sender: 'agent',
-    phone: phone
-  })
+    // ── 7. Inject contextual data (bookings, orders, action results) ──────────
+    systemPrompt = await injectBookingContext(systemPrompt, message)
+    systemPrompt = await injectOrderContext(systemPrompt, message, phone)
 
-  // Send back via WhatsApp
-  await sendWhatsAppReply(phone, aiResponse)
+    if (agent?.id) {
+      systemPrompt = await injectActionResults(systemPrompt, agent.id, phone, message)
+    }
 
-  // Emit message sent trigger
-  await emitWhatsAppMessageSent(phone, aiResponse)
+    // ── 8. Fetch conversation history ─────────────────────────────────────────
+    const { data: recentMessages } = await supabaseAdmin
+      .from('messages')
+      .select('content, sender, created_at')
+      .eq('phone', phone)
+      .order('created_at', { ascending: false })
+      .limit(30)
 
-  if (sentGreetingThisTurn) {
-    console.log('[AI Handler] Completed first-contact flow: greeting + AI response sent')
-  }
+    const history = (recentMessages || []).reverse()
+
+    // ── 9. Build messages array for LLM ──────────────────────────────────────
+    const llmMessages: Message[] = [{ role: 'system', content: systemPrompt }]
+
+    history.forEach((msg: any) => {
+      // Don't re-add the current message if it's already the last in history
+      llmMessages.push({
+        role: msg.sender === 'agent' || msg.sender === 'ai' || msg.sender === 'bot' ? 'assistant' : 'user',
+        content: msg.content
+      })
+    })
+
+    // Ensure current message is the last user message
+    const lastMsg = llmMessages[llmMessages.length - 1]
+    if (!lastMsg || lastMsg.role !== 'user' || lastMsg.content !== message) {
+      llmMessages.push({ role: 'user', content: message })
+    }
+
+    console.log(`[Handler] Sending ${llmMessages.length} messages to LLM`)
+    console.log(`[Handler] System prompt preview: ${systemPrompt.slice(0, 300)}...`)
+
+    // ── 10. Get LLM response ──────────────────────────────────────────────────
+    const aiResponse = await getAIResponseWithHistory(llmMessages)
+    console.log(`[Handler] LLM response: "${aiResponse.slice(0, 100)}"`)
+
+    // ── 11. Save response and send ────────────────────────────────────────────
+    await supabaseAdmin.from('messages').insert({
+      agent_id: agent?.id || null,
+      content: aiResponse,
+      sender: 'agent',
+      phone
+    })
+
+    await sendWhatsAppReply(phone, aiResponse)
+    await emitWhatsAppMessageSent(phone, aiResponse)
+
   } catch (error: any) {
-    console.error('[AI Handler] Unhandled error:', error.message)
-    console.error('[AI Handler] Error stack:', error.stack)
+    console.error('[Handler] Unhandled error:', error.message)
+    console.error('[Handler] Stack:', error.stack)
     throw error
   }
 }
