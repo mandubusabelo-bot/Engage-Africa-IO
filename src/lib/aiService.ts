@@ -34,6 +34,52 @@ async function getKnowledgeBaseContext(agentId: string | null): Promise<string |
   }
 }
 
+export async function getAIResponseWithHistory(messages: Array<{ role: string; content: string }>): Promise<string> {
+  const openrouterKey = process.env.OPENROUTER_API_KEY
+  if (openrouterKey) {
+    try {
+      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${openrouterKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://engage-africa.io'
+        },
+        body: JSON.stringify({
+          model: process.env.OPENROUTER_MODEL || 'google/gemini-2.0-flash-exp:free',
+          messages
+        })
+      })
+      const data = await response.json()
+      if (data.choices?.[0]?.message?.content) {
+        console.log('[AI] OpenRouter response received')
+        return data.choices[0].message.content
+      }
+      console.error('[AI] OpenRouter unexpected response:', JSON.stringify(data).slice(0, 200))
+    } catch (err: any) {
+      console.error('[AI] OpenRouter error:', err.message)
+    }
+  }
+
+  const geminiKey = process.env.GEMINI_API_KEY
+  if (geminiKey) {
+    try {
+      const { GoogleGenerativeAI } = await import('@google/generative-ai')
+      const genAI = new GoogleGenerativeAI(geminiKey)
+      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+      const systemMsg = messages.find(m => m.role === 'system')?.content || ''
+      const userMsg = messages[messages.length - 1]?.content || ''
+      const result = await model.generateContent(`${systemMsg}\n\nUser: ${userMsg}`)
+      console.log('[AI] Gemini response received')
+      return result.response.text()
+    } catch (err: any) {
+      console.error('[AI] Gemini error:', err.message)
+    }
+  }
+
+  return `Thank you for your message! Our team will get back to you shortly.`
+}
+
 export async function getAIResponse(message: string, systemPrompt: string): Promise<string> {
   // Try OpenRouter first
   const openrouterKey = process.env.OPENROUTER_API_KEY
@@ -229,22 +275,116 @@ export async function handleIncomingWhatsApp(phone: string, message: string, pus
     }
   }
 
-  // Build contextual system prompt with knowledge base
-  let systemPrompt = agent?.system_prompt || 'You are a helpful AI assistant. Be friendly, concise, and helpful.'
-  const agentName = agent?.name || 'AI Assistant'
+  const agentName = agent?.agent_name || agent?.name || 'AI Assistant'
   const contactName = contact?.name || phone.split('@')[0]
-  
-  // Add knowledge base context if available
-  const knowledgeBase = await getKnowledgeBaseContext(agent?.id)
-  if (knowledgeBase) {
-    systemPrompt = `${systemPrompt}\n\n${knowledgeBase}`
-  }
 
   console.log(`[AI Handler] Using agent: ${agentName} for contact: ${contactName}`)
 
-  // Generate AI response with contact name and knowledge context
-  const contextualPrompt = `${systemPrompt}\n\nYou are speaking with ${contactName}. Be helpful and professional.`
-  const aiResponse = await getAIResponse(message, contextualPrompt)
+  // Check if conversation has already been greeted
+  const { data: convMeta } = await supabaseAdmin
+    .from('conversations')
+    .select('greeting_sent')
+    .eq('contact_phone', phone)
+    .single()
+
+  const greetingSent = convMeta?.greeting_sent === true
+
+  // Send greeting DIRECTLY (not through LLM) for new contacts
+  if (!greetingSent && agent?.greeting_message) {
+    const greeting = agent.greeting_message.replace(/\{\{contact\.name\}\}/g, contactName)
+    console.log(`[AI Handler] Sending direct greeting to ${contactName}`)
+
+    await supabaseAdmin.from('messages').insert({
+      agent_id: agent?.id || null,
+      content: greeting,
+      sender: 'agent',
+      phone: phone
+    })
+    await sendWhatsAppReply(phone, greeting)
+    await emitWhatsAppMessageSent(phone, greeting)
+
+    // Mark conversation as greeted
+    await supabaseAdmin
+      .from('conversations')
+      .upsert({ contact_phone: phone, greeting_sent: true }, { onConflict: 'contact_phone' })
+
+    console.log(`[AI Handler] Greeting sent directly, skipping LLM for this turn`)
+    return
+  }
+
+  // Build enhanced system prompt — LLM never sees a greeting instruction
+  let systemPrompt = agent?.system_prompt || 'You are a helpful AI assistant.'
+
+  // Agent identity
+  if (agent?.agent_name) {
+    systemPrompt += `\n\nYour name is ${agent.agent_name}.`
+  }
+
+  // Tone
+  if (agent?.tone) {
+    systemPrompt += `\n\nTone: Use a ${agent.tone} tone in all responses.`
+  }
+
+  // HARDCODED anti-greeting rule — always appended, agent cannot override
+  systemPrompt += `\n\nYou have already greeted this contact. Do NOT say hello, hi, sawubona, or introduce yourself again under any circumstances. Do NOT open with a greeting word. Start your reply by directly addressing what the contact said. Check the full conversation history before every response and never repeat yourself.`
+
+  // Emoji rule
+  if (agent?.rule_limit_emojis !== false) {
+    systemPrompt += `\n\nCRITICAL RULE — EMOJI LIMIT: Use maximum 1 emoji per response.`
+  }
+
+  // Concise rule
+  if (agent?.rule_concise) {
+    systemPrompt += `\n\nCRITICAL RULE — BE CONCISE: Keep responses under 2 sentences unless the user asks for detailed information.`
+  }
+
+  // Custom rules
+  if (agent?.custom_rules) {
+    systemPrompt += `\n\nCUSTOM RULES:\n${agent.custom_rules}`
+  }
+
+  // Never say
+  if (agent?.never_say) {
+    systemPrompt += `\n\nNEVER say or use these words/phrases: ${agent.never_say}`
+  }
+
+  // Fallback guidance
+  if (agent?.fallback_message) {
+    systemPrompt += `\n\nIf you cannot answer: ${agent.fallback_message}`
+  }
+
+  // Knowledge base context
+  const knowledgeBase = await getKnowledgeBaseContext(agent?.id)
+  if (knowledgeBase) {
+    systemPrompt += `\n\n${knowledgeBase}`
+  }
+
+  systemPrompt += `\n\nYou are speaking with ${contactName}.`
+
+  // Fetch recent message history for context
+  const { data: recentMessages } = await supabaseAdmin
+    .from('messages')
+    .select('content, sender, created_at')
+    .eq('phone', phone)
+    .order('created_at', { ascending: false })
+    .limit(10)
+
+  const history = (recentMessages || []).reverse()
+
+  // Build messages array with history
+  const messages: Array<{ role: string; content: string }> = [
+    { role: 'system', content: systemPrompt }
+  ]
+  history.forEach((msg: any) => {
+    messages.push({
+      role: msg.sender === 'agent' || msg.sender === 'ai' ? 'assistant' : 'user',
+      content: msg.content
+    })
+  })
+  messages.push({ role: 'user', content: message })
+
+  // Generate AI response
+  const aiResponse = await getAIResponseWithHistory(messages)
   console.log(`[AI Handler] AI response: ${aiResponse.slice(0, 100)}...`)
 
   // Save AI response to DB
@@ -257,7 +397,7 @@ export async function handleIncomingWhatsApp(phone: string, message: string, pus
 
   // Send back via WhatsApp
   await sendWhatsAppReply(phone, aiResponse)
-  
+
   // Emit message sent trigger
   await emitWhatsAppMessageSent(phone, aiResponse)
 }
