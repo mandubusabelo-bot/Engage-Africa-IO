@@ -1,5 +1,6 @@
 import { supabaseAdmin } from './supabase-server'
 import { emitConversationOpened, emitAgentAssigned, emitWhatsAppMessageReceived, emitWhatsAppMessageSent } from './workflowTriggers'
+import { createOrderFromConversation, extractOrderDetails, getMissingInfo } from './orderService'
 
 // Retrieve knowledge base content for an agent
 async function getKnowledgeBaseContext(agentId: string | null): Promise<string | null> {
@@ -399,6 +400,9 @@ export async function handleIncomingWhatsApp(phone: string, message: string, pus
     systemPrompt += `\n\n${knowledgeBase}`
   }
 
+  // Order handling instructions
+  systemPrompt += `\n\nORDER HANDLING: When a customer wants to buy a product, you must collect: 1) Their full name, 2) Cellphone number, 3) Collection location (PEP store with code like P1234, or mall name). Once they provide all details, acknowledge their order and tell them a payment link will be sent. Do NOT say "order processed for collection" without a payment link.`
+
   systemPrompt += `\n\nYou are speaking with ${contactName}.`
 
   // Fetch recent message history for context
@@ -410,6 +414,75 @@ export async function handleIncomingWhatsApp(phone: string, message: string, pus
     .limit(10)
 
   const history = (recentMessages || []).reverse()
+
+  // ===== ORDER CREATION FLOW =====
+  // Check if user is trying to buy and has provided all details
+  const orderDetails = extractOrderDetails(message, history)
+  
+  if (orderDetails) {
+    console.log(`[AI Handler] Detected purchase intent with complete details:`, orderDetails)
+    
+    // Create order
+    const orderResult = await createOrderFromConversation(phone, orderDetails)
+    
+    if (orderResult.success && orderResult.paymentUrl) {
+      const orderConfirmation = `Thank you ${orderDetails.customerName}! 🎉
+
+Your order has been created:
+📦 Product: ${orderDetails.productName}
+📍 Collection: ${orderDetails.deliveryLocation}${orderDetails.pepStoreCode ? ' (' + orderDetails.pepStoreCode + ')' : ''}
+💳 Total: Click here to pay and complete your order: ${orderResult.paymentUrl}
+
+Once payment is confirmed, your order will be ready for collection within 1-3 business days.`
+
+      // Save order confirmation to DB
+      await supabaseAdmin.from('messages').insert({
+        agent_id: agent?.id || null,
+        content: orderConfirmation,
+        sender: 'agent',
+        phone: phone
+      })
+
+      // Send via WhatsApp
+      await sendWhatsAppReply(phone, orderConfirmation)
+      await emitWhatsAppMessageSent(phone, orderConfirmation)
+      
+      console.log(`[AI Handler] Order ${orderResult.orderRef} created with payment link`)
+      return
+    } else {
+      console.error(`[AI Handler] Order creation failed:`, orderResult.error)
+      // Continue with normal AI response but include error context
+    }
+  } else {
+    // Check if there's partial purchase intent - ask for missing info
+    const partialDetails = extractOrderDetails(message + ' ' + history.map(m => m.content).join(' '), [])
+    const hasPurchaseKeywords = /(?:buy|purchase|order|get|want|nehla|inhlanhla|isichitho|vitality)/i.test(message)
+    
+    if (hasPurchaseKeywords && !partialDetails) {
+      const missing = getMissingInfo({
+        productName: message.match(/(?:nehla|inhlanhla|isichitho|vitality|love|luck|fertility|skin)/i)?.[0] || ''
+      })
+      
+      if (missing.length > 0) {
+        const askForDetails = `I'd be happy to help you with your order! To complete your purchase, please provide:
+
+${missing.map(m => `• ${m}`).join('\n')}
+
+For example: "My name is John Smith, my number is 0821234567, and I want to collect at PEP store Pinetown P1234"`
+
+        await supabaseAdmin.from('messages').insert({
+          agent_id: agent?.id || null,
+          content: askForDetails,
+          sender: 'agent',
+          phone: phone
+        })
+
+        await sendWhatsAppReply(phone, askForDetails)
+        await emitWhatsAppMessageSent(phone, askForDetails)
+        return
+      }
+    }
+  }
 
   // Build messages array with history
   const messages: Array<{ role: string; content: string }> = [
