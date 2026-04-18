@@ -1,6 +1,6 @@
 import { supabaseAdmin } from './supabase-server'
 import { emitConversationOpened, emitAgentAssigned, emitWhatsAppMessageReceived, emitWhatsAppMessageSent } from './workflowTriggers'
-import { createOrderFromConversation, extractOrderDetails, getMissingInfo } from './orderService'
+import { createOrderFromConversation, extractOrderDetails, getMissingInfo, updateContactFromOrder } from './orderService'
 
 // Retrieve knowledge base content for an agent
 async function getKnowledgeBaseContext(agentId: string | null): Promise<string | null> {
@@ -422,6 +422,9 @@ export async function handleIncomingWhatsApp(phone: string, message: string, pus
   if (orderDetails) {
     console.log(`[AI Handler] Detected purchase intent with complete details:`, orderDetails)
     
+    // Update contact with extracted information
+    await updateContactFromOrder(phone, orderDetails)
+    
     // Create order
     const orderResult = await createOrderFromConversation(phone, orderDetails)
     
@@ -455,7 +458,7 @@ Once payment is confirmed, your order will be ready for collection within 1-3 bu
     }
   } else {
     // Check if there's partial purchase intent - ask for missing info
-    const partialDetails = extractOrderDetails(message + ' ' + history.map(m => m.content).join(' '), [])
+    const partialDetails = extractOrderDetails(message + ' ' + history.map((m: any) => m.content).join(' '), [])
     const hasPurchaseKeywords = /(?:buy|purchase|order|get|want|nehla|inhlanhla|isichitho|vitality)/i.test(message)
     
     if (hasPurchaseKeywords && !partialDetails) {

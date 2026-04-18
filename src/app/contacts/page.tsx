@@ -11,6 +11,10 @@ interface Contact {
   name: string
   phone: string
   email?: string
+  street_address?: string
+  city?: string
+  province?: string
+  postal_code?: string
   assigned_agent_id?: string
   assigned_agent_name?: string
   tags?: string[]
@@ -33,7 +37,17 @@ export default function Contacts() {
   const [showAddModal, setShowAddModal] = useState(false)
   const [actionContactId, setActionContactId] = useState<string | null>(null)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null)
-  const [newContact, setNewContact] = useState({ name: '', phone: '', lifecycle: 'new_lead' })
+  const [newContact, setNewContact] = useState({ 
+    name: '', 
+    phone: '', 
+    email: '',
+    street_address: '',
+    city: '',
+    province: '',
+    postal_code: '',
+    lifecycle: 'new_lead' 
+  })
+  const [editingContact, setEditingContact] = useState<Contact | null>(null)
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
     setToast({ message, type })
@@ -119,6 +133,21 @@ export default function Contacts() {
     }
   }
 
+  const handleUpdateContactField = async (contactId: string, field: string, value: string) => {
+    const previous = contacts
+    setContacts((current) => current.map((contact) => (
+      contact.id === contactId ? { ...contact, [field]: value } : contact
+    )))
+
+    try {
+      await api.updateContact(contactId, { [field]: value || null })
+      showToast('Contact updated', 'success')
+    } catch (error) {
+      setContacts(previous)
+      showToast('Failed to update contact', 'error')
+    }
+  }
+
   const handleCreateContact = async () => {
     if (!newContact.phone.trim()) {
       showToast('Phone is required', 'error')
@@ -133,13 +162,27 @@ export default function Contacts() {
       const response = await api.createContact({
         name: newContact.name || normalizedPhone.split('@')[0],
         phone: normalizedPhone,
+        email: newContact.email || null,
+        street_address: newContact.street_address || null,
+        city: newContact.city || null,
+        province: newContact.province || null,
+        postal_code: newContact.postal_code || null,
         lifecycle: newContact.lifecycle
       })
 
       if (response.success && response.data) {
         setContacts((current) => [response.data, ...current])
         setShowAddModal(false)
-        setNewContact({ name: '', phone: '', lifecycle: 'new_lead' })
+        setNewContact({ 
+          name: '', 
+          phone: '', 
+          email: '',
+          street_address: '',
+          city: '',
+          province: '',
+          postal_code: '',
+          lifecycle: 'new_lead' 
+        })
         showToast('Contact added', 'success')
       }
     } catch (error) {
@@ -265,6 +308,11 @@ export default function Contacts() {
                           <div>
                             <div className="text-white font-medium">{contact.name || 'Unknown'}</div>
                             <div className="text-gray-400 text-sm">{contact.email || 'No email'}</div>
+                            {(contact.street_address || contact.city) && (
+                              <div className="text-gray-500 text-xs mt-1">
+                                {contact.street_address}{contact.street_address && contact.city ? ', ' : ''}{contact.city}
+                              </div>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -306,7 +354,7 @@ export default function Contacts() {
                     {actionContactId === contact.id && (
                       <tr>
                         <td colSpan={6} className="px-6 py-3 bg-gray-850 border-t border-gray-700">
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                             <div>
                               <label className="block text-xs text-gray-400 mb-1">Assign Agent</label>
                               <select
@@ -332,6 +380,56 @@ export default function Contacts() {
                                 <option value="customer">Customer</option>
                                 <option value="cold_lead">Cold Lead</option>
                               </select>
+                            </div>
+                            <div>
+                              <label className="block text-xs text-gray-400 mb-1">Email</label>
+                              <input
+                                type="email"
+                                value={contact.email || ''}
+                                onChange={(e) => handleUpdateContactField(contact.id, 'email', e.target.value)}
+                                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
+                                placeholder="email@example.com"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs text-gray-400 mb-1">Street Address / Collection</label>
+                              <input
+                                type="text"
+                                value={contact.street_address || ''}
+                                onChange={(e) => handleUpdateContactField(contact.id, 'street_address', e.target.value)}
+                                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
+                                placeholder="PEP Store Pinetown"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs text-gray-400 mb-1">City</label>
+                              <input
+                                type="text"
+                                value={contact.city || ''}
+                                onChange={(e) => handleUpdateContactField(contact.id, 'city', e.target.value)}
+                                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
+                                placeholder="Pinetown"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs text-gray-400 mb-1">Province</label>
+                              <input
+                                type="text"
+                                value={contact.province || ''}
+                                onChange={(e) => handleUpdateContactField(contact.id, 'province', e.target.value)}
+                                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
+                                placeholder="KwaZulu-Natal"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs text-gray-400 mb-1">Postal Code / Store Code</label>
+                              <input
+                                type="text"
+                                value={contact.postal_code || ''}
+                                onChange={(e) => handleUpdateContactField(contact.id, 'postal_code', e.target.value)}
+                                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
+                                placeholder="P1234"
+                              />
                             </div>
                           </div>
                         </td>
@@ -365,6 +463,53 @@ export default function Contacts() {
                     onChange={(e) => setNewContact({ ...newContact, phone: e.target.value })}
                     className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
                     placeholder="e.g. 27821234567"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-300 mb-1">Email (optional)</label>
+                  <input
+                    value={newContact.email}
+                    onChange={(e) => setNewContact({ ...newContact, email: e.target.value })}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
+                    placeholder="email@example.com"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-300 mb-1">Street Address / Collection</label>
+                  <input
+                    value={newContact.street_address}
+                    onChange={(e) => setNewContact({ ...newContact, street_address: e.target.value })}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
+                    placeholder="PEP Store Pinetown"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm text-slate-300 mb-1">City</label>
+                    <input
+                      value={newContact.city}
+                      onChange={(e) => setNewContact({ ...newContact, city: e.target.value })}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
+                      placeholder="Pinetown"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-slate-300 mb-1">Province</label>
+                    <input
+                      value={newContact.province}
+                      onChange={(e) => setNewContact({ ...newContact, province: e.target.value })}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
+                      placeholder="KwaZulu-Natal"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-300 mb-1">Postal Code / Store Code</label>
+                  <input
+                    value={newContact.postal_code}
+                    onChange={(e) => setNewContact({ ...newContact, postal_code: e.target.value })}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
+                    placeholder="P1234"
                   />
                 </div>
                 <div>

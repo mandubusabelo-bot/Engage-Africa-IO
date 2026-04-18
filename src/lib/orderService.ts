@@ -210,3 +210,82 @@ export function getMissingInfo(details: Partial<OrderDetails>): string[] {
   
   return missing
 }
+
+// Update contact with extracted information
+export async function updateContactFromOrder(phone: string, details: OrderDetails): Promise<void> {
+  try {
+    // Find contact by phone
+    const { data: contacts } = await supabaseAdmin
+      .from('contacts')
+      .select('id, name, phone, email, street_address, city, province, postal_code')
+      .ilike('phone', `%${phone.replace(/@.*/, '').replace(/\D/g, '')}%`)
+      .limit(1)
+
+    const contact = contacts?.[0]
+    if (!contact) {
+      console.log('[Contact Update] No contact found for phone:', phone)
+      return
+    }
+
+    // Build update payload with extracted info
+    const updates: any = {
+      updated_at: new Date().toISOString()
+    }
+
+    // Update name if we have it and contact name is empty/generic
+    if (details.customerName && (!contact.name || contact.name.includes('@') || contact.name.length < 3)) {
+      updates.name = details.customerName
+    }
+
+    // Update phone if we have a cleaner version
+    if (details.customerPhone && details.customerPhone.length >= 10) {
+      const formattedPhone = details.customerPhone.startsWith('0') 
+        ? `27${details.customerPhone.substring(1)}@s.whatsapp.net`
+        : `${details.customerPhone}@s.whatsapp.net`
+      if (formattedPhone !== contact.phone) {
+        updates.phone = formattedPhone
+      }
+    }
+
+    // Update collection/delivery location as address
+    if (details.deliveryLocation) {
+      updates.street_address = details.deliveryLocation
+      
+      // Try to extract city from PEP store or mall name
+      if (details.deliveryLocation.toLowerCase().includes('pinetown')) {
+        updates.city = 'Pinetown'
+        updates.province = 'KwaZulu-Natal'
+      } else if (details.deliveryLocation.toLowerCase().includes('durban')) {
+        updates.city = 'Durban'
+        updates.province = 'KwaZulu-Natal'
+      } else if (details.deliveryLocation.toLowerCase().includes('johannesburg') || details.deliveryLocation.toLowerCase().includes('sandton')) {
+        updates.city = 'Johannesburg'
+        updates.province = 'Gauteng'
+      } else if (details.deliveryLocation.toLowerCase().includes('cape town')) {
+        updates.city = 'Cape Town'
+        updates.province = 'Western Cape'
+      }
+    }
+
+    // Update PEP store code as postal code if available
+    if (details.pepStoreCode) {
+      updates.postal_code = details.pepStoreCode
+    }
+
+    // Only update if we have changes
+    if (Object.keys(updates).length > 1) { // > 1 because updated_at is always there
+      const { error } = await supabaseAdmin
+        .from('contacts')
+        .update(updates)
+        .eq('id', contact.id)
+
+      if (error) {
+        console.error('[Contact Update] Failed to update contact:', error)
+      } else {
+        console.log('[Contact Update] Updated contact:', contact.id, 'with:', Object.keys(updates))
+      }
+    }
+  } catch (error) {
+    console.error('[Contact Update] Error:', error)
+  }
+}
