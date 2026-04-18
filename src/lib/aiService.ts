@@ -143,6 +143,9 @@ export async function sendWhatsAppReply(phone: string, message: string): Promise
     return
   }
 
+  // Normalize phone number - strip @s.whatsapp.net and @c.us suffixes
+  const normalizedPhone = phone.replace(/@s\.whatsapp\.net$/i, '').replace(/@c\.us$/i, '')
+
   try {
     const response = await fetch(`${evolutionApiUrl}/message/sendText/${instanceName}`, {
       method: 'POST',
@@ -150,7 +153,7 @@ export async function sendWhatsAppReply(phone: string, message: string): Promise
         'apikey': evolutionApiKey,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ number: phone, text: message })
+      body: JSON.stringify({ number: normalizedPhone, text: message })
     })
 
     const data = await response.json()
