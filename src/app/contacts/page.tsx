@@ -104,7 +104,7 @@ export default function Contacts() {
         ? {
             ...contact,
             assigned_agent_id: assigned_agent_id || undefined,
-            assigned_agent_name: agents.find((a) => a.id === assigned_agent_id)?.name || null
+            assigned_agent_name: agents.find((a) => a.id === assigned_agent_id)?.name || undefined
           }
         : contact
     )))
