@@ -7,7 +7,8 @@ import {
   Bot, BookOpen, Plus, Trash2, Save, ArrowLeft, Power, 
   MessageSquare, Settings, Sparkles, Play, X, ChevronDown,
   RefreshCw, TestTube, Variable, Clock, User, Brain,
-  Shield, AlertCircle, CheckCircle, Sliders, ShoppingCart
+  Shield, AlertCircle, CheckCircle, Sliders, ShoppingCart,
+  Globe, Loader2
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import InlineToast from '@/components/InlineToast'
@@ -72,6 +73,12 @@ export default function AgentDetail() {
   const [showTestDrawer, setShowTestDrawer] = useState(false)
   const [showTestActionDrawer, setShowTestActionDrawer] = useState<string | null>(null)
   const [showKbTestModal, setShowKbTestModal] = useState(false)
+  const [testActionLogs, setTestActionLogs] = useState<Array<{ ts: string; level: string; msg: string }>>([])
+  const [testActionRunning, setTestActionRunning] = useState(false)
+  const [testActionMessage, setTestActionMessage] = useState('I want to buy umuthi wenhlanhla')
+  const [testActionPhone, setTestActionPhone] = useState('27600000000')
+  const [siteTestLogs, setSiteTestLogs] = useState<Array<{ ts: string; level: string; msg: string }>>([])
+  const [siteTestRunning, setSiteTestRunning] = useState(false)
   
   // Form states
   const [newKnowledge, setNewKnowledge] = useState({ title: '', content: '' })
@@ -1747,25 +1754,172 @@ export default function AgentDetail() {
         {/* Test Action Drawer */}
         {showTestActionDrawer && (
           <div className="fixed inset-0 z-50 overflow-hidden">
-            <div className="absolute inset-0 bg-black/50" onClick={() => setShowTestActionDrawer(null)} />
-            <div className="absolute right-0 top-0 h-full w-full max-w-md bg-slate-900 border-l border-slate-800 p-6 overflow-y-auto">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-semibold text-white">
-                  Test: {getActionLabel(actions.find(a => a.id === showTestActionDrawer)?.action_type || '')}
-                </h3>
+            <div className="absolute inset-0 bg-black/50" onClick={() => { setShowTestActionDrawer(null); setTestActionLogs([]); }} />
+            <div className="absolute right-0 top-0 h-full w-full max-w-lg bg-slate-900 border-l border-slate-800 flex flex-col">
+              <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <TestTube className="text-cyan-400" size={20} />
+                  <h3 className="font-semibold text-white">
+                    Test: {getActionLabel(actions.find(a => a.id === showTestActionDrawer)?.action_type || '')}
+                  </h3>
+                </div>
                 <button
-                  onClick={() => setShowTestActionDrawer(null)}
+                  onClick={() => { setShowTestActionDrawer(null); setTestActionLogs([]); }}
                   className="p-2 hover:bg-slate-800 rounded-lg"
                 >
                   <X size={20} className="text-slate-400" />
                 </button>
               </div>
-              <p className="text-slate-400 text-sm mb-4">
-                This would run a simulation of the action trigger condition against sample messages.
-              </p>
-              <div className="bg-slate-800 rounded-lg p-4">
-                <p className="text-xs text-slate-500">Action test panel coming soon...</p>
+
+              <div className="p-4 space-y-3 border-b border-slate-800">
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Sample Message</label>
+                  <input
+                    type="text"
+                    value={testActionMessage}
+                    onChange={(e) => setTestActionMessage(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"
+                    placeholder="I want to buy umuthi wenhlanhla"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Sample Phone</label>
+                  <input
+                    type="text"
+                    value={testActionPhone}
+                    onChange={(e) => setTestActionPhone(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"
+                    placeholder="27600000000"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={async () => {
+                      setTestActionRunning(true)
+                      setTestActionLogs([])
+                      try {
+                        const res = await fetch(`/api/agent-engine/${agentId}/actions/test`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            actionId: showTestActionDrawer,
+                            sampleMessage: testActionMessage,
+                            samplePhone: testActionPhone
+                          })
+                        })
+                        const data = await res.json()
+                        setTestActionLogs(data.logs || [{ ts: new Date().toISOString(), level: 'error', msg: `HTTP ${res.status}: ${data.error || 'Unknown error'}` }])
+                      } catch (err: any) {
+                        setTestActionLogs([{ ts: new Date().toISOString(), level: 'error', msg: err.message }])
+                      } finally {
+                        setTestActionRunning(false)
+                      }
+                    }}
+                    disabled={testActionRunning}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-cyan-500 hover:bg-cyan-600 disabled:bg-slate-700 text-slate-950 disabled:text-slate-400 rounded-lg font-medium transition-colors"
+                  >
+                    {testActionRunning ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}
+                    {testActionRunning ? 'Running...' : 'Run Test'}
+                  </button>
+                  <button
+                    onClick={async () => {
+                      setSiteTestRunning(true)
+                      setSiteTestLogs([])
+                      setTestActionLogs([])
+                      try {
+                        const res = await fetch(`/api/agent-engine/${agentId}/actions/test-site`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({})
+                        })
+                        const data = await res.json()
+                        setSiteTestLogs(data.logs || [])
+                      } catch (err: any) {
+                        setSiteTestLogs([{ ts: new Date().toISOString(), level: 'error', msg: err.message }])
+                      } finally {
+                        setSiteTestRunning(false)
+                      }
+                    }}
+                    disabled={siteTestRunning}
+                    className="flex items-center gap-2 px-4 py-2 bg-emerald-500/15 hover:bg-emerald-500/25 disabled:bg-slate-700 text-emerald-300 disabled:text-slate-400 border border-emerald-500/30 rounded-lg text-sm transition-colors"
+                  >
+                    {siteTestRunning ? <Loader2 size={14} className="animate-spin" /> : <Globe size={14} />}
+                    Test Site
+                  </button>
+                </div>
               </div>
+
+              {/* Log Output */}
+              <div className="flex-1 overflow-y-auto p-4 font-mono text-xs space-y-1 bg-slate-950">
+                {testActionLogs.length === 0 && siteTestLogs.length === 0 && !testActionRunning && !siteTestRunning && (
+                  <p className="text-slate-600 text-center py-8">Run a test to see results here...</p>
+                )}
+                {(testActionRunning || siteTestRunning) && testActionLogs.length === 0 && siteTestLogs.length === 0 && (
+                  <div className="flex items-center gap-2 text-slate-400 py-8 justify-center">
+                    <Loader2 size={16} className="animate-spin" />
+                    Running test...
+                  </div>
+                )}
+                {testActionLogs.map((log, i) => (
+                  <div key={`a-${i}`} className={`flex gap-2 ${
+                    log.level === 'error' ? 'text-red-400' :
+                    log.level === 'warn' ? 'text-amber-400' :
+                    log.level === 'success' ? 'text-emerald-400' :
+                    'text-slate-400'
+                  }`}>
+                    <span className="text-slate-600 shrink-0">{new Date(log.ts).toLocaleTimeString()}</span>
+                    <span className={`shrink-0 w-14 text-right ${
+                      log.level === 'error' ? 'text-red-500' :
+                      log.level === 'warn' ? 'text-amber-500' :
+                      log.level === 'success' ? 'text-emerald-500' :
+                      'text-slate-500'
+                    }`}>[{log.level.toUpperCase()}]</span>
+                    <span className="break-all">{log.msg}</span>
+                  </div>
+                ))}
+                {siteTestLogs.length > 0 && (
+                  <>
+                    <div className="border-t border-slate-800 my-2 pt-2">
+                      <span className="text-cyan-400 font-bold">--- Site Connectivity Test ---</span>
+                    </div>
+                    {siteTestLogs.map((log, i) => (
+                      <div key={`s-${i}`} className={`flex gap-2 ${
+                        log.level === 'error' ? 'text-red-400' :
+                        log.level === 'warn' ? 'text-amber-400' :
+                        log.level === 'success' ? 'text-emerald-400' :
+                        'text-slate-400'
+                      }`}>
+                        <span className="text-slate-600 shrink-0">{new Date(log.ts).toLocaleTimeString()}</span>
+                        <span className={`shrink-0 w-14 text-right ${
+                          log.level === 'error' ? 'text-red-500' :
+                          log.level === 'warn' ? 'text-amber-500' :
+                          log.level === 'success' ? 'text-emerald-500' :
+                          'text-slate-500'
+                        }`}>[{log.level.toUpperCase()}]</span>
+                        <span className="break-all">{log.msg}</span>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+
+              {/* Copy Logs */}
+              {(testActionLogs.length > 0 || siteTestLogs.length > 0) && (
+                <div className="p-3 border-t border-slate-800 flex justify-end">
+                  <button
+                    onClick={() => {
+                      const allLogs = [...testActionLogs, ...siteTestLogs]
+                        .map(l => `[${l.level.toUpperCase()}] ${l.msg}`)
+                        .join('\n')
+                      navigator.clipboard.writeText(allLogs)
+                      showToast('Logs copied to clipboard', 'success')
+                    }}
+                    className="text-xs text-slate-400 hover:text-white px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors"
+                  >
+                    Copy Logs
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}
