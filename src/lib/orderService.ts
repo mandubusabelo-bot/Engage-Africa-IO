@@ -199,6 +199,185 @@ export function extractOrderDetails(message: string, history: any[]): OrderDetai
   return null
 }
 
+// ===== BOOKING FUNCTIONS =====
+
+interface BookingResult {
+  success: boolean
+  booking?: {
+    id: string
+    reference: string
+    date: string
+    time: string
+    type: string
+    amount: number
+    status: string
+  }
+  error?: string
+}
+
+interface AvailabilityResult {
+  success: boolean
+  availability?: Record<string, Array<{ slot_id: string; time: string; start_time: string; end_time: string; spots_left: number }>>
+  total_slots?: number
+  error?: string
+}
+
+interface BookingCheckResult {
+  success: boolean
+  bookings?: Array<{
+    id: string
+    client_name: string
+    date: string
+    time: string
+    type: string
+    amount: number
+    booking_status: string
+    payment_status: string
+    reference: string | null
+  }>
+  count?: number
+  error?: string
+}
+
+export async function checkBookingAvailability(days: number = 7): Promise<AvailabilityResult> {
+  try {
+    const siteUrl = process.env.NEXT_SITE_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://intandokaziherbal.co.za'
+    const apiSecret = process.env.AGENT_API_SECRET
+
+    if (!apiSecret) {
+      return { success: false, error: 'Missing AGENT_API_SECRET' }
+    }
+
+    const res = await fetch(`${siteUrl}/api/agent/bookings/availability?days=${days}`, {
+      headers: { 'x-agent-secret': apiSecret }
+    })
+
+    const data = await res.json()
+
+    if (!res.ok || !data.success) {
+      return { success: false, error: data.error || 'Failed to check availability' }
+    }
+
+    return {
+      success: true,
+      availability: data.availability,
+      total_slots: data.total_slots
+    }
+  } catch (error: any) {
+    console.error('[Booking Service] Availability error:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+export async function createBooking(details: {
+  clientName: string
+  clientPhone: string
+  clientEmail?: string
+  bookingDate: string
+  startTime: string
+  endTime?: string
+  consultationType?: string
+  slotId?: string
+  notes?: string
+}): Promise<BookingResult> {
+  try {
+    const siteUrl = process.env.NEXT_SITE_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://intandokaziherbal.co.za'
+    const apiSecret = process.env.AGENT_API_SECRET
+
+    if (!apiSecret) {
+      return { success: false, error: 'Missing AGENT_API_SECRET' }
+    }
+
+    const res = await fetch(`${siteUrl}/api/agent/bookings`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-agent-secret': apiSecret
+      },
+      body: JSON.stringify({
+        client_name: details.clientName,
+        client_phone: details.clientPhone,
+        client_email: details.clientEmail,
+        client_notes: details.notes,
+        booking_date: details.bookingDate,
+        start_time: details.startTime,
+        end_time: details.endTime,
+        consultation_type: details.consultationType || 'video',
+        slot_id: details.slotId
+      })
+    })
+
+    const data = await res.json()
+
+    if (!res.ok || !data.success) {
+      return { success: false, error: data.error || 'Failed to create booking' }
+    }
+
+    return { success: true, booking: data.booking }
+  } catch (error: any) {
+    console.error('[Booking Service] Create error:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+export async function checkBookingsForPhone(phone: string): Promise<BookingCheckResult> {
+  try {
+    const siteUrl = process.env.NEXT_SITE_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://intandokaziherbal.co.za'
+    const apiSecret = process.env.AGENT_API_SECRET
+
+    if (!apiSecret) {
+      return { success: false, error: 'Missing AGENT_API_SECRET' }
+    }
+
+    const normalizedPhone = phone.replace(/@.*/, '').replace(/\D/g, '')
+
+    const res = await fetch(`${siteUrl}/api/agent/bookings?phone=${encodeURIComponent(normalizedPhone)}`, {
+      headers: { 'x-agent-secret': apiSecret }
+    })
+
+    const data = await res.json()
+
+    if (!res.ok || !data.success) {
+      return { success: false, error: data.error || 'Failed to check bookings' }
+    }
+
+    return {
+      success: true,
+      bookings: data.bookings,
+      count: data.count
+    }
+  } catch (error: any) {
+    console.error('[Booking Service] Check error:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+export async function checkOrderStatus(orderRef: string): Promise<{ success: boolean; order?: any; error?: string }> {
+  try {
+    const siteUrl = process.env.NEXT_SITE_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://intandokaziherbal.co.za'
+    const apiSecret = process.env.AGENT_API_SECRET
+
+    if (!apiSecret) {
+      return { success: false, error: 'Missing AGENT_API_SECRET' }
+    }
+
+    const res = await fetch(`${siteUrl}/api/agent/orders/${encodeURIComponent(orderRef)}/status`, {
+      headers: { 'x-agent-secret': apiSecret }
+    })
+
+    const data = await res.json()
+
+    if (!res.ok || !data.success) {
+      return { success: false, error: data.error || 'Order not found' }
+    }
+
+    return { success: true, order: data.order }
+  } catch (error: any) {
+    console.error('[Order Service] Status check error:', error)
+    return { success: false, error: error.message }
+  }
+}
+
 // Check if we have all required info or need to ask for more
 export function getMissingInfo(details: Partial<OrderDetails>): string[] {
   const missing: string[] = []

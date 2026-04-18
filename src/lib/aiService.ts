@@ -1,6 +1,6 @@
 import { supabaseAdmin } from './supabase-server'
 import { emitConversationOpened, emitAgentAssigned, emitWhatsAppMessageReceived, emitWhatsAppMessageSent } from './workflowTriggers'
-import { createOrderFromConversation, extractOrderDetails, getMissingInfo, updateContactFromOrder } from './orderService'
+import { createOrderFromConversation, extractOrderDetails, getMissingInfo, updateContactFromOrder, checkBookingAvailability, createBooking, checkBookingsForPhone, checkOrderStatus } from './orderService'
 import { runAgentActions } from './agentActions'
 
 // Retrieve knowledge base content for an agent
@@ -506,6 +506,63 @@ For example: "My name is John Smith, my number is 0821234567, and I want to coll
         await emitWhatsAppMessageSent(phone, askForDetails)
         return
       }
+    }
+  }
+
+  // ===== BOOKING & ORDER CHECK FLOWS =====
+  const messageLower = message.toLowerCase()
+
+  // Check for booking intent
+  const bookingKeywords = /\b(book|consultation|consult|appointment|schedule|available|slot|booking)\b/i
+  const checkBookingKeywords = /\b(my booking|check booking|booking status|when is my|appointment status)\b/i
+  const orderCheckKeywords = /\b(order status|track order|where is my order|check my order|order ref|ORD-)\b/i
+
+  if (checkBookingKeywords.test(messageLower)) {
+    console.log('[AI Handler] Detected booking check intent')
+    const bookingResult = await checkBookingsForPhone(phone)
+    if (bookingResult.success && bookingResult.bookings && bookingResult.bookings.length > 0) {
+      const bookingList = bookingResult.bookings.map((b: any) =>
+        `📅 ${b.date} at ${b.time} (${b.type})\n   Status: ${b.booking_status} | Payment: ${b.payment_status}${b.reference ? `\n   Ref: ${b.reference}` : ''}`
+      ).join('\n\n')
+
+      systemPrompt += `\n\n[BOOKING INFO] Customer has ${bookingResult.count} booking(s):\n${bookingList}`
+    } else {
+      systemPrompt += `\n\n[BOOKING INFO] No bookings found for this customer's phone number.`
+    }
+  }
+
+  if (orderCheckKeywords.test(messageLower)) {
+    console.log('[AI Handler] Detected order status check intent')
+    // Try to extract order reference from message
+    const orderRefMatch = message.match(/ORD-[A-Z0-9-]+/i)
+    if (orderRefMatch) {
+      const orderResult = await checkOrderStatus(orderRefMatch[0])
+      if (orderResult.success && orderResult.order) {
+        const o = orderResult.order
+        systemPrompt += `\n\n[ORDER INFO] Order ${o.order_ref}:\n- Status: ${o.order_status}\n- Payment: ${o.payment_status}\n- Total: R${o.total}\n- Items: ${o.items?.map((i: any) => `${i.quantity}x ${i.product_name}`).join(', ') || 'N/A'}\n- Created: ${new Date(o.created_at).toLocaleDateString('en-ZA')}`
+      } else {
+        systemPrompt += `\n\n[ORDER INFO] Could not find order with reference "${orderRefMatch[0]}".`
+      }
+    } else {
+      systemPrompt += `\n\n[ORDER INFO] Customer is asking about an order but didn't provide a reference number. Ask them for their order reference (starts with ORD-).`
+    }
+  }
+
+  if (bookingKeywords.test(messageLower) && !checkBookingKeywords.test(messageLower)) {
+    console.log('[AI Handler] Detected booking/availability interest')
+    const availResult = await checkBookingAvailability(14)
+    if (availResult.success && availResult.total_slots && availResult.total_slots > 0) {
+      const slotSummary = Object.entries(availResult.availability || {})
+        .slice(0, 5)
+        .map(([date, slots]) => {
+          const dateStr = new Date(date).toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short' })
+          return `${dateStr}: ${slots.map(s => s.time).join(', ')}`
+        })
+        .join('\n')
+
+      systemPrompt += `\n\n[AVAILABLE CONSULTATION SLOTS] (next 14 days, ${availResult.total_slots} slots):\n${slotSummary}\n\nTo book, the customer needs: name, phone, preferred date & time. Consultation fee is R150.`
+    } else {
+      systemPrompt += `\n\n[AVAILABILITY] No consultation slots available in the next 14 days. Advise the customer to check back later or contact via WhatsApp at 062 584 2441.`
     }
   }
 

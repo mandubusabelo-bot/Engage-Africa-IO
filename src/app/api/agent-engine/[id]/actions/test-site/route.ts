@@ -109,6 +109,99 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Test 5: Booking availability endpoint
+    log('info', '--- Test 5: Booking availability API ---')
+    if (!apiSecret) {
+      log('warn', 'Skipping booking API test (no AGENT_API_SECRET)')
+    } else {
+      try {
+        const baseUrl = siteUrl.replace(/\/$/, '')
+        const availUrl = `${baseUrl}/api/agent/bookings/availability?days=7`
+        log('info', `GET ${availUrl}`)
+
+        const startMs = Date.now()
+        const res = await fetch(availUrl, {
+          headers: {
+            'x-agent-secret': apiSecret,
+            'Content-Type': 'application/json'
+          }
+        })
+        const elapsed = Date.now() - startMs
+
+        log('info', `Response: ${res.status} (${elapsed}ms)`)
+
+        if (res.ok) {
+          const data = await res.json().catch(() => null)
+          if (data) {
+            log('info', `Total available slots: ${data.total_slots ?? 'N/A'}`)
+            if (data.availability) {
+              const dates = Object.keys(data.availability)
+              log('info', `Dates with slots: ${dates.length > 0 ? dates.slice(0, 5).join(', ') : 'None'}`)
+            }
+            log('success', 'Booking availability API is working')
+          }
+        } else {
+          const text = await res.text().catch(() => '')
+          log('error', `Booking availability failed: ${res.status} — ${text.slice(0, 200)}`)
+        }
+      } catch (err: any) {
+        log('error', `Booking API error: ${err.message}`)
+      }
+    }
+
+    // Test 6: Booking check by phone endpoint
+    log('info', '--- Test 6: Booking check API ---')
+    if (!apiSecret) {
+      log('warn', 'Skipping booking check test (no AGENT_API_SECRET)')
+    } else {
+      try {
+        const baseUrl = siteUrl.replace(/\/$/, '')
+        const checkUrl = `${baseUrl}/api/agent/bookings?phone=27000000000`
+        log('info', `GET ${checkUrl}`)
+
+        const startMs = Date.now()
+        const res = await fetch(checkUrl, {
+          headers: {
+            'x-agent-secret': apiSecret,
+            'Content-Type': 'application/json'
+          }
+        })
+        const elapsed = Date.now() - startMs
+        log('info', `Response: ${res.status} (${elapsed}ms)`)
+
+        if (res.ok) {
+          const data = await res.json().catch(() => null)
+          log('success', `Booking check API working — found ${data?.count ?? 0} bookings for test phone`)
+        } else {
+          log('error', `Booking check failed: ${res.status}`)
+        }
+      } catch (err: any) {
+        log('error', `Booking check API error: ${err.message}`)
+      }
+    }
+
+    // Test 7: Order status check endpoint
+    log('info', '--- Test 7: Order status API ---')
+    if (!apiSecret) {
+      log('warn', 'Skipping order status test (no AGENT_API_SECRET)')
+    } else {
+      try {
+        const baseUrl = siteUrl.replace(/\/$/, '')
+        const statusUrl = `${baseUrl}/api/agent/orders/TEST-000/status`
+        log('info', `GET ${statusUrl}`)
+
+        const startMs = Date.now()
+        const res = await fetch(statusUrl, {
+          headers: { 'x-agent-secret': apiSecret }
+        })
+        const elapsed = Date.now() - startMs
+        log('info', `Response: ${res.status} (${elapsed}ms)`)
+        log(res.status === 404 || res.ok ? 'success' : 'error', `Order status API responds correctly (${res.status === 404 ? '404 for fake ref = correct' : res.status})`)
+      } catch (err: any) {
+        log('error', `Order status API error: ${err.message}`)
+      }
+    }
+
     const allSuccess = logs.every(l => l.level !== 'error')
     log(allSuccess ? 'success' : 'warn', `Site connectivity test complete — ${allSuccess ? 'ALL PASSED' : 'SOME FAILURES'}`)
 
