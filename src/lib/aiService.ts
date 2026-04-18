@@ -415,8 +415,8 @@ export async function handleIncomingWhatsApp(phone: string, message: string, pus
   3) Pep store name + code (like P1234), OR mall for collection, OR EFT bank transfer
 - When customer provides details: Respond with "Pop" to acknowledge, then continue collecting remaining info.
 - Use ✅✅✅✅ only when confirming that order/details have been sent and are complete.
-- Payment options: Cash on collection, or EFT to Capitec account (provide bank details when requested).
-- For EFT customers: Share Capitec account details (Account holder: Intandokazi Herbal, Account: 1234567890).
+- Payment options: Cash on collection at PEP store, OR EFT bank transfer.
+- For EFT: Share the bank account details from your knowledge base (Capitec account holder and account number).
 - For PEP collection: Confirm store name and code clearly.
 - Shipping takes 3-7 business days; expect delivery this week if recent order. Follow up politely if delayed.
 
@@ -443,7 +443,7 @@ ESCALATION:
 CRITICAL — ORDER COMPLETION RULE:
 - When order details are complete, confirm clearly: "Pop, I have all your details ✅✅✅✅ Your order for [PRODUCT] is confirmed for [COLLECTION/EFT]."
 - For PEP/collection: Confirm store name, code, and that they'll pay cash on pickup.
-- For EFT: Provide Capitec bank details and ask them to send proof of payment (pop) once paid.
+- For EFT: Reference your knowledge base for the Capitec account holder name and account number, then ask for proof of payment (pop) once paid.
 - DO NOT promise online payment links - this is a local cash/EFT business.
 - If order creation fails, tell the customer: "Pop, I have your details ✅✅✅✅ I'm just having a small system issue. Let me quickly send this to the team to process immediately."`
 
@@ -513,7 +513,7 @@ Your order for ${orderDetails.productName} is confirmed!
 
 Payment options:
 💵 Cash on collection at PEP store
-🏦 OR EFT to Capitec: Acc Holder: Intandokazi Herbal, Acc: 1234567890
+🏦 OR EFT (bank details shared above)
 
 Please send proof of payment if doing EFT. Your order will be ready within 1-3 business days.`
       }
