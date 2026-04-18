@@ -38,25 +38,45 @@ export async function createOrderFromConversation(
       return { success: false, error: 'Missing AGENT_API_SECRET' }
     }
 
-    // Search for product by name
-    const searchResponse = await fetch(`${siteUrl}/api/agent/products/search?q=${encodeURIComponent(details.productName)}`, {
-      headers: {
-        'x-agent-secret': apiSecret
-      }
-    })
-
-    if (!searchResponse.ok) {
-      const errText = await searchResponse.text().catch(() => '')
-      return {
-        success: false,
-        error: `Failed to search products (${searchResponse.status})${errText ? `: ${errText.slice(0, 180)}` : ''}`
-      }
+    // Search for product by name with multi-word fallback
+    const searchTerms = [details.productName]
+    const words = details.productName.split(/\s+/).filter(w => w.length > 2)
+    if (words.length > 1) {
+      // Add individual word searches as fallbacks
+      searchTerms.push(...words)
     }
 
-    const searchData = await searchResponse.json()
-    
-    if (!searchData.success || !searchData.products || searchData.products.length === 0) {
-      return { success: false, error: `Product "${details.productName}" not found` }
+    let searchData: any = null
+    let lastError: string = ''
+
+    for (const term of searchTerms) {
+      console.log(`[Order Service] Searching for product: "${term}"`)
+      const searchResponse = await fetch(`${siteUrl}/api/agent/products/search?q=${encodeURIComponent(term)}`, {
+        headers: { 'x-agent-secret': apiSecret }
+      })
+
+      if (!searchResponse.ok) {
+        const errText = await searchResponse.text().catch(() => '')
+        lastError = `Failed to search products (${searchResponse.status})${errText ? `: ${errText.slice(0, 180)}` : ''}`
+        console.error(`[Order Service] Search failed for "${term}":`, lastError)
+        continue
+      }
+
+      const data = await searchResponse.json()
+      if (data.success && data.products && data.products.length > 0) {
+        console.log(`[Order Service] Found ${data.products.length} products for "${term}"`)
+        // Log found product names for debugging
+        data.products.slice(0, 3).forEach((p: any, i: number) => {
+          console.log(`[Order Service]  Match ${i + 1}: "${p.name}" (R${p.price})`)
+        })
+        searchData = data
+        break
+      }
+      console.log(`[Order Service] No products found for "${term}"`)
+    }
+
+    if (!searchData) {
+      return { success: false, error: lastError || `Product "${details.productName}" not found` }
     }
 
     const product = searchData.products[0]
