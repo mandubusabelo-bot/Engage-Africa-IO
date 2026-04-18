@@ -165,10 +165,11 @@ export async function sendWhatsAppReply(phone: string, message: string): Promise
 }
 
 export async function handleIncomingWhatsApp(phone: string, message: string, pushName?: string): Promise<void> {
-  console.log(`[AI Handler] Processing message from ${phone}: ${message}`)
-  
-  // Emit message received trigger
-  await emitWhatsAppMessageReceived(phone, message, pushName)
+  try {
+    console.log(`[AI Handler] Processing message from ${phone}: ${message}`)
+    
+    // Emit message received trigger
+    await emitWhatsAppMessageReceived(phone, message, pushName)
 
   // Get or create contact
   let { data: contact } = await supabaseAdmin
@@ -671,5 +672,10 @@ For example: "My name is John Smith, my number is 0821234567, and I want to coll
 
   if (sentGreetingThisTurn) {
     console.log('[AI Handler] Completed first-contact flow: greeting + AI response sent')
+  }
+  } catch (error: any) {
+    console.error('[AI Handler] Unhandled error:', error.message)
+    console.error('[AI Handler] Error stack:', error.stack)
+    throw error
   }
 }

@@ -35,9 +35,10 @@ export async function POST(request: NextRequest) {
         console.log(`[Webhook] ✅ WhatsApp message from ${pushName || phone}: ${text}`)
 
         // Process and reply (non-blocking - don't await so webhook returns fast)
-        handleIncomingWhatsApp(phone, text, pushName).catch(err =>
+        handleIncomingWhatsApp(phone, text, pushName).catch(err => {
           console.error('[Webhook] AI handler error:', err.message)
-        )
+          console.error('[Webhook] AI handler error stack:', err.stack)
+        })
       }
     }
 
