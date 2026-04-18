@@ -408,15 +408,17 @@ export async function handleIncomingWhatsApp(phone: string, message: string, pus
   }
 
   // Order & consultation handling instructions
-  systemPrompt += `\n\nORDER HANDLING:
+  systemPrompt += `\n\nORDER HANDLING (LOCAL SALES - CASH/BANK TRANSFER/PEP):
 - When a customer wants to buy a product, collect info ONE BY ONE — do not ask for everything at once:
   1) Name/Surname
   2) Cell number
-  3) Pep details (store name + code like P1234) OR mall name for collection, OR "Pop" + bank details for EFT
+  3) Pep store name + code (like P1234), OR mall for collection, OR EFT bank transfer
 - When customer provides details: Respond with "Pop" to acknowledge, then continue collecting remaining info.
 - Use ✅✅✅✅ only when confirming that order/details have been sent and are complete.
-- Once all details collected, tell them a payment link will be sent. Do NOT say "order processed for collection" without a payment link.
-- Shipping takes 3-7 business days usually; expect delivery this week if recent order. Follow up politely if delayed.
+- Payment options: Cash on collection, or EFT to Capitec account (provide bank details when requested).
+- For EFT customers: Share Capitec account details (Account holder: Intandokazi Herbal, Account: 1234567890).
+- For PEP collection: Confirm store name and code clearly.
+- Shipping takes 3-7 business days; expect delivery this week if recent order. Follow up politely if delayed.
 
 SKIN CONSULTATION:
 - For skin issues (pimples, dark spots, long-term skin problems): ALWAYS ask customer to send a photo of their face/all sides FIRST before recommending any product. Say something like "Please send a photo of the affected area so I can advise you better 📸"
@@ -439,9 +441,11 @@ ESCALATION:
 - Always end by offering more help or assigning to human if complex.
 
 CRITICAL — ORDER COMPLETION RULE:
-- NEVER tell the customer their order has been "processed", "confirmed", or is "ready for collection" unless you include a REAL payment link (URL starting with https://).
-- If you don't have a payment link, DO NOT confirm the order. Instead say: "Pop, I have all your details ✅✅✅✅ Let me process your order and send you a payment link shortly."
-- The system will automatically create the order and generate a payment link when all details are collected. Do NOT fake or hallucinate order confirmations.`
+- When order details are complete, confirm clearly: "Pop, I have all your details ✅✅✅✅ Your order for [PRODUCT] is confirmed for [COLLECTION/EFT]."
+- For PEP/collection: Confirm store name, code, and that they'll pay cash on pickup.
+- For EFT: Provide Capitec bank details and ask them to send proof of payment (pop) once paid.
+- DO NOT promise online payment links - this is a local cash/EFT business.
+- If order creation fails, tell the customer: "Pop, I have your details ✅✅✅✅ I'm just having a small system issue. Let me quickly send this to the team to process immediately."`
 
   // Execute enabled agent actions (API/Webhook/Human handoff/etc.) and inject results
   if (agent?.id) {
@@ -489,8 +493,11 @@ CRITICAL — ORDER COMPLETION RULE:
     // Create order
     const orderResult = await createOrderFromConversation(phone, orderDetails)
     
-    if (orderResult.success && orderResult.paymentUrl) {
-      const orderConfirmation = `Thank you ${orderDetails.customerName}! 🎉
+    if (orderResult.success) {
+      // Build confirmation message - with payment link if available, otherwise local payment
+      let orderConfirmation: string
+      if (orderResult.paymentUrl) {
+        orderConfirmation = `Thank you ${orderDetails.customerName}! 🎉
 
 Your order has been created:
 📦 Product: ${orderDetails.productName}
@@ -498,6 +505,18 @@ Your order has been created:
 💳 Total: Click here to pay and complete your order: ${orderResult.paymentUrl}
 
 Once payment is confirmed, your order will be ready for collection within 1-3 business days.`
+      } else {
+        orderConfirmation = `Pop, I have all your details ✅✅✅✅
+
+Your order for ${orderDetails.productName} is confirmed!
+📍 Collection: ${orderDetails.deliveryLocation}${orderDetails.pepStoreCode ? ' (' + orderDetails.pepStoreCode + ')' : ''}
+
+Payment options:
+💵 Cash on collection at PEP store
+🏦 OR EFT to Capitec: Acc Holder: Intandokazi Herbal, Acc: 1234567890
+
+Please send proof of payment if doing EFT. Your order will be ready within 1-3 business days.`
+      }
 
       // Save order confirmation to DB
       await supabaseAdmin.from('messages').insert({
@@ -511,7 +530,7 @@ Once payment is confirmed, your order will be ready for collection within 1-3 bu
       await sendWhatsAppReply(phone, orderConfirmation)
       await emitWhatsAppMessageSent(phone, orderConfirmation)
       
-      console.log(`[AI Handler] Order ${orderResult.orderRef} created with payment link`)
+      console.log(`[AI Handler] Order ${orderResult.orderRef} created`)
       return
     } else {
       console.error(`[AI Handler] Order creation failed:`, orderResult.error)
