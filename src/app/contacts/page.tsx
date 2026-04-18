@@ -2,7 +2,7 @@
 
 import { useState, useEffect, Fragment } from 'react'
 import Layout from '@/components/Layout'
-import { Search, UserPlus, Phone, Mail, Tag, Clock, MoreVertical, Filter } from 'lucide-react'
+import { Search, UserPlus, Phone, Mail, Tag, Clock, MoreVertical, Filter, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import InlineToast from '@/components/InlineToast'
 
@@ -145,6 +145,24 @@ export default function Contacts() {
     } catch (error) {
       setContacts(previous)
       showToast('Failed to update contact', 'error')
+    }
+  }
+
+  const handleDeleteContact = async (contactId: string) => {
+    if (!confirm('Are you sure you want to delete this contact? This will also delete all messages.')) {
+      return
+    }
+
+    const previous = contacts
+    setContacts((current) => current.filter((contact) => contact.id !== contactId))
+    setActionContactId(null)
+
+    try {
+      await api.deleteContact(contactId)
+      showToast('Contact deleted', 'success')
+    } catch (error) {
+      setContacts(previous)
+      showToast('Failed to delete contact', 'error')
     }
   }
 
@@ -430,6 +448,15 @@ export default function Contacts() {
                                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
                                 placeholder="P1234"
                               />
+                            </div>
+                            <div className="flex items-end">
+                              <button
+                                onClick={() => handleDeleteContact(contact.id)}
+                                className="w-full flex items-center justify-center gap-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg px-3 py-2 text-sm transition-colors"
+                              >
+                                <Trash2 size={16} />
+                                Delete Contact
+                              </button>
                             </div>
                           </div>
                         </td>

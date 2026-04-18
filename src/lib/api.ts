@@ -296,6 +296,15 @@ export const api = {
     return handleResponse(response)
   },
 
+  async deleteContact(id: string) {
+    const token = await getToken()
+    const response = await fetch(`${API_URL}/contacts/${id}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+    return handleResponse(response)
+  },
+
   // Analytics
   async getAnalytics(startDate?: string, endDate?: string) {
     const params = new URLSearchParams()
