@@ -26,6 +26,41 @@ function getIntandokaziBaseUrl(): string {
   return raw.replace(/\/$/, '')
 }
 
+// Debug function to fetch and log all available products
+export async function debugFetchAllProducts(): Promise<void> {
+  try {
+    const siteUrl = getIntandokaziBaseUrl()
+    const apiSecret = process.env.AGENT_API_SECRET
+
+    if (!apiSecret) {
+      console.error('[Order Service Debug] Missing AGENT_API_SECRET')
+      return
+    }
+
+    console.log('[Order Service Debug] Fetching all products from Intandokazi...')
+    const response = await fetch(`${siteUrl}/api/agent/products/search`, {
+      headers: { 'x-agent-secret': apiSecret }
+    })
+
+    if (!response.ok) {
+      console.error('[Order Service Debug] Failed to fetch products:', response.status)
+      return
+    }
+
+    const data = await response.json()
+    if (data.success && data.products) {
+      console.log('[Order Service Debug] Available products:')
+      data.products.forEach((p: any, i: number) => {
+        console.log(`  ${i + 1}. "${p.name}" (R${p.price}) - ${p.category || 'no category'}`)
+      })
+    } else {
+      console.log('[Order Service Debug] No products found or error:', data.error)
+    }
+  } catch (error) {
+    console.error('[Order Service Debug] Error fetching products:', error)
+  }
+}
+
 export async function createOrderFromConversation(
   phone: string,
   details: OrderDetails
@@ -76,6 +111,8 @@ export async function createOrderFromConversation(
     }
 
     if (!searchData) {
+      // Log all available products for debugging
+      await debugFetchAllProducts()
       return { success: false, error: lastError || `Product "${details.productName}" not found` }
     }
 
