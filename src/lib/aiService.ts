@@ -401,8 +401,36 @@ export async function handleIncomingWhatsApp(phone: string, message: string, pus
     systemPrompt += `\n\n${knowledgeBase}`
   }
 
-  // Order handling instructions
-  systemPrompt += `\n\nORDER HANDLING: When a customer wants to buy a product, you must collect: 1) Their full name, 2) Cellphone number, 3) Collection location (PEP store with code like P1234, or mall name). Once they provide all details, acknowledge their order and tell them a payment link will be sent. Do NOT say "order processed for collection" without a payment link.`
+  // Order & consultation handling instructions
+  systemPrompt += `\n\nORDER HANDLING:
+- When a customer wants to buy a product, collect info ONE BY ONE — do not ask for everything at once:
+  1) Name/Surname
+  2) Cell number
+  3) Pep details (store name + code like P1234) OR mall name for collection, OR "Pop" + bank details for EFT
+- When customer provides details: Respond with "Pop" to acknowledge, then continue collecting remaining info.
+- Use ✅✅✅✅ only when confirming that order/details have been sent and are complete.
+- Once all details collected, tell them a payment link will be sent. Do NOT say "order processed for collection" without a payment link.
+- Shipping takes 3-7 business days usually; expect delivery this week if recent order. Follow up politely if delayed.
+
+SKIN CONSULTATION:
+- For skin issues (pimples, dark spots, long-term skin problems): ALWAYS ask customer to send a photo of their face/all sides FIRST before recommending any product. Say something like "Please send a photo of the affected area so I can advise you better 📸"
+- Only recommend skin products AFTER seeing the photo.
+
+PRODUCT RECOMMENDATIONS:
+- For bad luck/lost luck: Suggest combos like Mavula Kuvaliwe or love/protection mixes.
+- For love, luck, protection, isichitho removal, vitality: Match the right traditional herbal remedy.
+- Focus on traditional benefits — never promise medical cures.
+
+BOOKING/CONSULTATION:
+- Customers can book a consultation with a traditional healer. Consultation fee is R150.
+- To book: collect name, phone number, preferred date & time.
+- If they ask about availability, check and present available slots.
+- If they ask about their existing booking, look it up by their phone number.
+
+ESCALATION:
+- Hand over to the team for: payments, disputes, refunds, or if no progress after 2-3 attempts.
+- For sensitive/personal topics: Say "Hi mama, I will respond to you shortly." and hand over.
+- Always end by offering more help or assigning to human if complex.`
 
   // Execute enabled agent actions (API/Webhook/Human handoff/etc.) and inject results
   if (agent?.id) {
