@@ -38,13 +38,28 @@ export async function POST(
     const condition = (action.trigger_condition || '').trim().toLowerCase()
     const message = (sampleMessage || 'I want to buy umuthi wenhlanhla').toLowerCase()
 
-    if (condition && condition !== '*' && !message.includes(condition)) {
+    const triggerTokens = condition
+      ? condition.split(/[|,\n]/).map((t: string) => t.trim()).filter(Boolean)
+      : []
+
+    const wildcard = triggerTokens.includes('*')
+    const matchedToken = triggerTokens.find((token: string) => token !== '*' && message.includes(token))
+    const shouldFire = !condition || wildcard || Boolean(matchedToken)
+
+    if (!shouldFire) {
       log('warn', `Trigger condition "${condition}" NOT matched in sample message`)
+      log('warn', `Checked tokens: ${triggerTokens.join(', ') || '(none)'}`)
       log('warn', 'Action would NOT fire for this message')
       return NextResponse.json({ success: true, triggered: false, logs })
     }
 
-    log('success', condition ? `Trigger condition "${condition}" matched` : 'No trigger condition — always fires')
+    if (!condition) {
+      log('success', 'No trigger condition — always fires')
+    } else if (wildcard) {
+      log('success', 'Wildcard trigger "*" matched')
+    } else {
+      log('success', `Trigger matched via token: "${matchedToken}"`)
+    }
 
     // Parse config
     const config = action.config || {}

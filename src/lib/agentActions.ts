@@ -43,8 +43,17 @@ function shouldTrigger(action: AgentActionRecord, message: string) {
   if (!action.is_enabled) return false
   const condition = (action.trigger_condition || '').trim().toLowerCase()
   if (!condition) return true
-  if (condition === '*') return true
-  return message.toLowerCase().includes(condition)
+
+  const normalizedMessage = message.toLowerCase()
+  const tokens = condition
+    .split(/[|,\n]/)
+    .map((t) => t.trim())
+    .filter(Boolean)
+
+  if (tokens.length === 0) return true
+  if (tokens.includes('*')) return true
+
+  return tokens.some((token) => normalizedMessage.includes(token))
 }
 
 async function executeHttpLikeAction(action: AgentActionRecord, message: string, phone: string) {
