@@ -148,7 +148,7 @@ export async function runAgentActions(params: {
         ...parseInstructionConfig(action.instruction),
         ...(action.config || {})
       }
-      // Support both humanAgentPhone (UI field) and humanAgentId (legacy)
+      // Support both humanAgentPhone (UI field) and humanAgentId (legacy) - v2
       const humanAgentPhone = mergedConfig.humanAgentPhone || mergedConfig.humanAgentId
       if (!humanAgentPhone) {
         results.push({
