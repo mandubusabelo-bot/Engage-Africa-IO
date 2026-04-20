@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-server'
+import { notify } from '@/lib/services/internalNotifier'
 
 // POST /api/agent-engine/[id]/actions/test - Test a specific action with sample data
 export async function POST(
@@ -121,14 +122,183 @@ export async function POST(
         log('error', 'Missing humanAgentId in config')
         return NextResponse.json({ success: false, logs })
       }
-      log('success', `Would assign conversation to human agent: ${humanAgentId}`)
+
+      log('info', `Looking up contact for phone: ${phone}`)
+
+      // Get or create contact for testing
+      let { data: contact } = await supabaseAdmin
+        .from('contacts')
+        .select('id, name')
+        .eq('phone', phone)
+        .single()
+
+      if (!contact) {
+        log('info', `Creating test contact for ${phone}`)
+        const { data: newContact, error: createErr } = await supabaseAdmin
+          .from('contacts')
+          .insert({ phone, name: 'Test User', last_message_at: new Date().toISOString() })
+          .select()
+          .single()
+
+        if (createErr) {
+          log('error', `Failed to create contact: ${createErr.message}`)
+        } else {
+          contact = newContact
+          log('success', `Created test contact: ${contact?.id}`)
+        }
+      } else {
+        log('info', `Found existing contact: ${contact.name || 'Unknown'}`)
+      }
+
+      // Get or create conversation
+      let conversationId: string | undefined
+      if (contact?.id) {
+        const { data: conversation } = await supabaseAdmin
+          .from('conversations')
+          .select('id')
+          .eq('contact_id', contact.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single()
+
+        if (conversation?.id) {
+          conversationId = conversation.id
+          log('info', `Found conversation: ${conversationId}`)
+        } else {
+          // Create test conversation
+          const { data: newConv } = await supabaseAdmin
+            .from('conversations')
+            .insert({
+              contact_id: contact.id,
+              status: 'active',
+              labels: ['test-handover']
+            })
+            .select()
+            .single()
+          if (newConv) {
+            conversationId = newConv.id
+            log('success', `Created test conversation: ${conversationId}`)
+          }
+        }
+      }
+
+      // Execute the handover
+      log('info', `Sending WhatsApp notification to human agent...`)
+      try {
+        await notify('escalation_human', {
+          'contact.name': contact?.name || phone,
+          'contact.phone': phone,
+          'escalation.reason': mergedConfig.reason || 'Test handover from agent action',
+          'escalation.lastMessage': message,
+          'conversation.id': conversationId || 'test'
+        }, { role: 'human_agent', conversationId, contactId: contact?.id })
+
+        log('success', `WhatsApp notification sent to human agent`)
+
+        // Also add internal note
+        if (conversationId) {
+          await notify('escalation_internal_note', {
+            'escalation.reason': mergedConfig.reason || 'Test handover',
+            'escalation.lastMessage': message
+          }, { conversationId })
+          log('success', `Internal note added to conversation`)
+        }
+      } catch (notifyErr: any) {
+        log('error', `Failed to send WhatsApp: ${notifyErr.message}`)
+      }
+
+      log('success', `Test complete: Conversation assigned to human agent ${humanAgentId}`)
       return NextResponse.json({ success: true, triggered: true, logs })
     }
 
     if (action.action_type === 'notify_dispatch') {
-      const tpl = mergedConfig.messageTemplate || 'Dispatch alert for {{phone}}: {{message}}'
-      const rendered = interpolate(tpl, { phone, message, query: message })
-      log('success', `Dispatch message: ${rendered}`)
+      const notificationType = mergedConfig.notificationType || 'dispatch_pending_order'
+
+      log('info', `Looking up contact for phone: ${phone}`)
+
+      // Get contact
+      const { data: contact } = await supabaseAdmin
+        .from('contacts')
+        .select('id, name')
+        .eq('phone', phone)
+        .single()
+
+      const { data: conversation } = await supabaseAdmin
+        .from('conversations')
+        .select('id')
+        .eq('contact_id', contact?.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single()
+
+      // Get order if specified
+      let order = null
+      const orderId = mergedConfig.orderId
+      if (orderId) {
+        const { data: orderData } = await supabaseAdmin
+          .from('orders')
+          .select('*')
+          .eq('id', orderId)
+          .single()
+        order = orderData
+        if (order) log('info', `Found order: ${order.id}`)
+      }
+
+      // Execute notification
+      log('info', `Sending WhatsApp notification to dispatch team (${notificationType})...`)
+      try {
+        if (notificationType === 'dispatch_new_order' && order) {
+          await notify('dispatch_new_order', {
+            'contact.name': contact?.name || phone,
+            'contact.phone': phone,
+            'order.productName': order.product_name || 'Products',
+            'order.qty': String(order.quantity || 1),
+            'order.price': order.price?.toFixed(2) || '0.00',
+            'order.totalAmount': order.total_amount?.toFixed(2) || '0.00',
+            'order.collectionDetails': order.collection_details || 'N/A',
+            'order.contactName': order.contact_name || contact?.name || phone,
+            'dispatch.timestamp': new Date().toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })
+          }, { role: 'dispatch', conversationId: conversation?.id, orderId: order.id })
+        } else if (notificationType === 'pop_received' && order) {
+          await notify('pop_received_customer', {}, { conversationId: conversation?.id, contactId: contact?.id })
+          await notify('dispatch_new_order', {
+            'contact.name': contact?.name || phone,
+            'contact.phone': phone,
+            'order.productName': order.product_name || 'Products',
+            'order.qty': String(order.quantity || 1),
+            'order.price': order.price?.toFixed(2) || '0.00',
+            'order.totalAmount': order.total_amount?.toFixed(2) || '0.00',
+            'order.collectionDetails': order.collection_details || 'N/A',
+            'order.contactName': order.contact_name || contact?.name || phone,
+            'dispatch.timestamp': new Date().toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })
+          }, { role: 'dispatch', conversationId: conversation?.id, orderId: order.id })
+        } else {
+          // Default pending order notification
+          await notify('dispatch_pending_order', {
+            'contact.name': contact?.name || phone,
+            'contact.phone': phone,
+            'order.productName': order?.product_name || 'Products',
+            'order.qty': String(order?.quantity || 1),
+            'order.price': order?.price?.toFixed(2) || '0.00',
+            'order.totalAmount': order?.total_amount?.toFixed(2) || '0.00',
+            'order.collectionDetails': order?.collection_details || 'N/A'
+          }, { role: 'dispatch', conversationId: conversation?.id, orderId: order?.id })
+        }
+
+        log('success', `WhatsApp notification sent to dispatch team`)
+
+        // Also log to messages
+        await supabaseAdmin.from('messages').insert({
+          agent_id: agentId,
+          sender: 'system',
+          phone,
+          content: `[Test] ${notificationType} notification sent to dispatch`
+        })
+      } catch (notifyErr: any) {
+        log('error', `Failed to send WhatsApp: ${notifyErr.message}`)
+      }
+
+      log('success', `Test complete: Dispatch notified`)
       return NextResponse.json({ success: true, triggered: true, logs })
     }
 
