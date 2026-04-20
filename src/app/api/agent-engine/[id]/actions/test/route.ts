@@ -80,8 +80,10 @@ export async function POST(
         return NextResponse.json({ success: false, logs })
       }
 
-      const url = interpolate(String(rawUrl), { message, phone, query: message })
+      const query = deriveSearchQuery(message)
+      const url = interpolate(String(rawUrl), { message, phone, query })
       log('info', `${method} ${url}`)
+      log('info', `Derived query: "${query || '(empty -> fetch broad catalog)'}"`)
 
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
@@ -104,7 +106,7 @@ export async function POST(
       }
 
       const bodyPayload = mergedConfig.body
-        ? interpolate(JSON.stringify(mergedConfig.body), { message, phone, query: message })
+        ? interpolate(JSON.stringify(mergedConfig.body), { message, phone, query })
         : JSON.stringify({ message, phone })
 
       log('info', `Headers: ${JSON.stringify(headers)}`)
@@ -396,4 +398,13 @@ function interpolate(template: string, values: Record<string, string>) {
     output = output.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value)
   }
   return output
+}
+
+function deriveSearchQuery(message: string): string {
+  return message
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\b(what|do|you|have|in|stock|price|cost|available|please|can|i|want|to|buy|order|for|me|the|a|an|show|find|search|products)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }

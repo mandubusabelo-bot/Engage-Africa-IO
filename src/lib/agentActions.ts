@@ -39,6 +39,17 @@ function interpolateTemplate(template: string, values: Record<string, string>) {
   return output
 }
 
+function deriveSearchQuery(message: string): string {
+  const normalized = message
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\b(what|do|you|have|in|stock|price|cost|available|please|can|i|want|to|buy|order|for|me|the|a|an|show|find|search|products)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  return normalized
+}
+
 function shouldTrigger(action: AgentActionRecord, message: string) {
   if (!action.is_enabled) return false
   const condition = (action.trigger_condition || '').trim().toLowerCase()
@@ -73,10 +84,11 @@ async function executeHttpLikeAction(action: AgentActionRecord, message: string,
     } satisfies ActionExecutionResult
   }
 
+  const query = deriveSearchQuery(message)
   const url = interpolateTemplate(String(rawUrl), {
     message,
     phone,
-    query: message
+    query
   })
 
   const headers: Record<string, string> = {
@@ -91,7 +103,7 @@ async function executeHttpLikeAction(action: AgentActionRecord, message: string,
   }
 
   const bodyPayload = mergedConfig.body
-    ? interpolateTemplate(JSON.stringify(mergedConfig.body), { message, phone, query: message })
+    ? interpolateTemplate(JSON.stringify(mergedConfig.body), { message, phone, query })
     : JSON.stringify({ message, phone })
 
   try {
