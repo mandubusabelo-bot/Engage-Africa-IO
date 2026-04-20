@@ -1,4 +1,5 @@
 import { supabaseAdmin } from './supabase-server'
+import { notify } from './services/internalNotifier'
 
 type AgentActionRecord = {
   id: string
@@ -158,16 +159,49 @@ export async function runAgentActions(params: {
         continue
       }
 
+      // Get contact info for notification
+      const { data: contact } = await supabaseAdmin
+        .from('contacts')
+        .select('id, name, assigned_agent_id')
+        .eq('phone', phone)
+        .single()
+
+      const { data: conversation } = await supabaseAdmin
+        .from('conversations')
+        .select('id')
+        .eq('contact_id', contact?.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single()
+
+      // Assign to human agent
       const { error: assignError } = await supabaseAdmin
         .from('contacts')
         .update({ assigned_agent_id: humanAgentId, updated_at: new Date().toISOString() })
         .eq('phone', phone)
 
+      // Send WhatsApp notification to human agent using template
+      if (conversation?.id && contact?.id) {
+        await notify('escalation_human', {
+          'contact.name': contact.name || phone,
+          'contact.phone': phone,
+          'escalation.reason': mergedConfig.reason || 'Customer needs human assistance',
+          'escalation.lastMessage': message,
+          'conversation.id': conversation.id
+        }, { role: 'human_agent', conversationId: conversation.id, contactId: contact.id })
+
+        // Add internal note
+        await notify('escalation_internal_note', {
+          'escalation.reason': mergedConfig.reason || 'Customer needs human assistance',
+          'escalation.lastMessage': message
+        }, { conversationId: conversation.id })
+      }
+
       results.push({
         actionId: action.id,
         actionType: action.action_type,
         success: !assignError,
-        summary: assignError ? assignError.message : `Assigned conversation to human agent ${humanAgentId}`
+        summary: assignError ? assignError.message : `Assigned to human agent ${humanAgentId} and notified via WhatsApp`
       })
       continue
     }
@@ -177,21 +211,90 @@ export async function runAgentActions(params: {
         ...parseInstructionConfig(action.instruction),
         ...(action.config || {})
       }
-      const noteTemplate = mergedConfig.messageTemplate || 'Dispatch alert for {{phone}}: {{message}}'
-      const dispatchNote = interpolateTemplate(noteTemplate, { phone, message, query: message })
 
+      // Get contact info
+      const { data: contact } = await supabaseAdmin
+        .from('contacts')
+        .select('id, name')
+        .eq('phone', phone)
+        .single()
+
+      const { data: conversation } = await supabaseAdmin
+        .from('conversations')
+        .select('id')
+        .eq('contact_id', contact?.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single()
+
+      // Determine notification type based on config
+      const notificationType = mergedConfig.notificationType || 'dispatch_pending_order'
+      const orderId = mergedConfig.orderId
+
+      // Get order details if available
+      let order = null
+      if (orderId) {
+        const { data: orderData } = await supabaseAdmin
+          .from('orders')
+          .select('*')
+          .eq('id', orderId)
+          .single()
+        order = orderData
+      }
+
+      // Send notification using template
+      if (notificationType === 'dispatch_new_order' && order) {
+        await notify('dispatch_new_order', {
+          'contact.name': contact?.name || phone,
+          'contact.phone': phone,
+          'order.productName': order.product_name || 'Products',
+          'order.qty': String(order.quantity || 1),
+          'order.price': order.price?.toFixed(2) || '0.00',
+          'order.totalAmount': order.total_amount?.toFixed(2) || '0.00',
+          'order.collectionDetails': order.collection_details || 'N/A',
+          'order.contactName': order.contact_name || contact?.name || phone,
+          'dispatch.timestamp': new Date().toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })
+        }, { role: 'dispatch', conversationId: conversation?.id, orderId: order.id })
+      } else if (notificationType === 'pop_received' && order) {
+        // POP received notification
+        await notify('pop_received_customer', {}, { conversationId: conversation?.id, contactId: contact?.id })
+        await notify('dispatch_new_order', {
+          'contact.name': contact?.name || phone,
+          'contact.phone': phone,
+          'order.productName': order.product_name || 'Products',
+          'order.qty': String(order.quantity || 1),
+          'order.price': order.price?.toFixed(2) || '0.00',
+          'order.totalAmount': order.total_amount?.toFixed(2) || '0.00',
+          'order.collectionDetails': order.collection_details || 'N/A',
+          'order.contactName': order.contact_name || contact?.name || phone,
+          'dispatch.timestamp': new Date().toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })
+        }, { role: 'dispatch', conversationId: conversation?.id, orderId: order.id })
+      } else {
+        // Default pending order notification
+        await notify('dispatch_pending_order', {
+          'contact.name': contact?.name || phone,
+          'contact.phone': phone,
+          'order.productName': order?.product_name || 'Products',
+          'order.qty': String(order?.quantity || 1),
+          'order.price': order?.price?.toFixed(2) || '0.00',
+          'order.totalAmount': order?.total_amount?.toFixed(2) || '0.00',
+          'order.collectionDetails': order?.collection_details || 'N/A'
+        }, { role: 'dispatch', conversationId: conversation?.id, orderId: order?.id })
+      }
+
+      // Also log to messages for audit trail
       const { error: insertError } = await supabaseAdmin.from('messages').insert({
         agent_id: agentId,
         sender: 'system',
         phone,
-        content: `[Dispatch Notice] ${dispatchNote}`
+        content: `[Dispatch Notice] ${notificationType} notification sent to dispatch team`
       })
 
       results.push({
         actionId: action.id,
         actionType: action.action_type,
         success: !insertError,
-        summary: insertError ? insertError.message : 'Dispatch notice logged'
+        summary: `Dispatch notified via WhatsApp: ${notificationType}`
       })
       continue
     }

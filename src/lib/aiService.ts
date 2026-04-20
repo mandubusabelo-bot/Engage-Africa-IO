@@ -549,40 +549,6 @@ export async function handleIncomingWhatsApp(
       phone
     })
 
-    // ── 3.5 Check for internal routing triggers ───────────────────────────────
-    // Get conversation ID for this contact
-    const { data: conversation } = await supabaseAdmin
-      .from('conversations')
-      .select('id, labels')
-      .eq('contact_id', contact?.id)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single()
-
-    const conversationId = conversation?.id
-
-    // Check for escalation keywords
-    const escalationKeywords = [
-      'complaint', 'problem', 'issue', 'refund', 'exchange',
-      'not received', 'late delivery', 'wrong product',
-      'reaction', 'allergy', 'skin problem',
-      'dispute', 'payment issue', 'complaint'
-    ]
-    const hasEscalationKeyword = escalationKeywords.some(kw => 
-      message.toLowerCase().includes(kw.toLowerCase())
-    )
-
-    if (hasEscalationKeyword && conversationId && contact?.id) {
-      await triggerHumanEscalation(
-        phone,
-        contactName,
-        contact.id,
-        conversationId,
-        'Customer mentioned: ' + escalationKeywords.find(kw => message.toLowerCase().includes(kw.toLowerCase())),
-        message
-      )
-    }
-
     // ── 4. Build system prompt from database agent ────────────────────────────
     let systemPrompt = buildSystemPrompt(agent || {} as Agent, contactName)
 
