@@ -34,9 +34,10 @@ export async function PUT(
 
     if (isDefaultAction) {
       // Create new action in database
+      const actionType = updates.action_type || actionId.replace('default_', '')
       const createPayload: Record<string, any> = {
         agent_id: agentId,
-        action_type: updates.action_type || actionId.replace('default_', ''),
+        action_type: actionType,
         is_enabled: updates.is_enabled ?? false,
         trigger_condition: updates.trigger_condition || '',
         instruction: updates.instruction || '',

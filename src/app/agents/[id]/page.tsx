@@ -370,6 +370,7 @@ export default function AgentDetail() {
 
   const handleUpdateAction = async (actionId: string, updates: Partial<AgentAction>) => {
     const previousActions = actions
+    const isDefaultAction = actionId.startsWith('default_')
     setActions(current => current.map(a => a.id === actionId ? { ...a, ...updates } : a))
 
     try {
@@ -380,6 +381,14 @@ export default function AgentDetail() {
       })
       const result = await response.json()
       if (!result.success) throw new Error('Failed to update')
+      
+      // If this was a default action that was just created, update the ID in state
+      if (isDefaultAction && result.data?.id && result.data.id !== actionId) {
+        setActions(current => current.map(a => 
+          a.id === actionId ? { ...a, ...result.data } : a
+        ))
+      }
+      
       showToast('Action updated', 'success')
     } catch (error) {
       setActions(previousActions)
