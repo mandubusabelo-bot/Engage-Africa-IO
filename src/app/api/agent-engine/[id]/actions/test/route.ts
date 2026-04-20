@@ -136,7 +136,7 @@ export async function POST(
         log('info', `Creating test contact for ${phone}`)
         const { data: newContact, error: createErr } = await supabaseAdmin
           .from('contacts')
-          .insert({ phone, name: 'Test User', last_message_at: new Date().toISOString() })
+          .insert({ phone, name: 'Test User' })
           .select()
           .single()
 

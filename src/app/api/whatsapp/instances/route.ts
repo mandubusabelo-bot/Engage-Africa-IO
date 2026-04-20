@@ -46,6 +46,45 @@ async function registerWebhookForInstance(
   }
 }
 
+function extractInstanceName(instance: any): string | null {
+  return (
+    instance?.name ||
+    instance?.instanceName ||
+    instance?.instance?.name ||
+    instance?.instance?.instanceName ||
+    null
+  )
+}
+
+async function syncWebhooksForInstances(
+  evolutionApiUrl: string,
+  evolutionApiKey: string,
+  webhookUrl: string,
+  instances: any[]
+) {
+  const names = Array.from(
+    new Set(
+      (instances || [])
+        .map(extractInstanceName)
+        .filter((name): name is string => Boolean(name))
+    )
+  )
+
+  const results = await Promise.all(
+    names.map(async (instanceName) => {
+      const result = await registerWebhookForInstance(evolutionApiUrl, evolutionApiKey, instanceName, webhookUrl)
+      return { instanceName, ...result }
+    })
+  )
+
+  return {
+    total: names.length,
+    successCount: results.filter(r => r.success).length,
+    failedCount: results.filter(r => !r.success).length,
+    results
+  }
+}
+
 async function evolutionRequest(
   url: string,
   apiKey: string,
@@ -78,7 +117,7 @@ export async function GET() {
       return NextResponse.json({ success: false, error: config.error }, { status: 400 })
     }
 
-    const { evolutionApiUrl, evolutionApiKey } = config
+    const { evolutionApiUrl, evolutionApiKey, webhookUrl } = config
     const result = await evolutionRequest(`${evolutionApiUrl}/instance/fetchInstances`, evolutionApiKey)
 
     if (!result.ok) {
@@ -88,7 +127,17 @@ export async function GET() {
       )
     }
 
-    return NextResponse.json({ success: true, data: result.data || [] })
+    let webhookSync = null
+    if (webhookUrl) {
+      webhookSync = await syncWebhooksForInstances(
+        evolutionApiUrl,
+        evolutionApiKey,
+        webhookUrl,
+        Array.isArray(result.data) ? result.data : []
+      )
+    }
+
+    return NextResponse.json({ success: true, data: result.data || [], webhookSync })
   } catch (error: any) {
     console.error('[WhatsApp Instances] GET error:', error)
     return NextResponse.json({ success: false, error: error.message }, { status: 500 })
@@ -111,7 +160,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Missing action' }, { status: 400 })
     }
 
-    if (!instanceName && action !== 'create') {
+    if (!instanceName && action !== 'create' && action !== 'sync_webhooks') {
       return NextResponse.json({ success: false, error: 'Missing instanceName' }, { status: 400 })
     }
 
@@ -142,6 +191,34 @@ export async function POST(request: NextRequest) {
         { success: result.ok, action, instanceName: newInstanceName, data: result.data, webhook: webhookResult },
         { status: result.ok ? 200 : result.status || 500 }
       )
+    }
+
+    if (action === 'sync_webhooks') {
+      if (!webhookUrl) {
+        return NextResponse.json({ success: false, error: 'Missing webhook URL' }, { status: 400 })
+      }
+
+      const fetchInstancesResult = await evolutionRequest(
+        `${evolutionApiUrl}/instance/fetchInstances`,
+        evolutionApiKey,
+        'GET'
+      )
+
+      if (!fetchInstancesResult.ok) {
+        return NextResponse.json(
+          { success: false, error: 'Failed to fetch instances for webhook sync', details: fetchInstancesResult.data },
+          { status: fetchInstancesResult.status || 500 }
+        )
+      }
+
+      const webhookSync = await syncWebhooksForInstances(
+        evolutionApiUrl,
+        evolutionApiKey,
+        webhookUrl,
+        Array.isArray(fetchInstancesResult.data) ? fetchInstancesResult.data : []
+      )
+
+      return NextResponse.json({ success: true, action, webhookSync })
     }
 
     if (action === 'connect') {
