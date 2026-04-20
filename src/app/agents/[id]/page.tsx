@@ -171,7 +171,13 @@ export default function AgentDetail() {
         const actionsRes = await fetch(`/api/agent-engine/${agentId}/actions`)
         const actionsJson = await actionsRes.json()
         if (actionsJson.success) {
-          setActions(actionsJson.data || [])
+          // Deduplicate actions by action_type - keep first occurrence
+          const uniqueActions = actionsJson.data?.reduce((acc: AgentAction[], current: AgentAction) => {
+            const exists = acc.find(a => a.action_type === current.action_type)
+            if (!exists) acc.push(current)
+            return acc
+          }, []) || []
+          setActions(uniqueActions)
         }
       } catch {
         // Fallback: create default actions
@@ -1020,17 +1026,34 @@ export default function AgentDetail() {
                             )}
 
                             {action.action_type === 'assign_to_human' && (
-                              <div>
-                                <label className="block text-xs font-medium text-slate-400 mb-1">
-                                  Human Agent ID
-                                </label>
-                                <input
-                                  type="text"
-                                  value={action.config?.humanAgentId || ''}
-                                  onChange={(e) => handleUpdateActionConfig(action.id, { humanAgentId: e.target.value })}
-                                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"
-                                  placeholder="UUID of human support agent"
-                                />
+                              <div className="space-y-3">
+                                <div>
+                                  <label className="block text-xs font-medium text-slate-400 mb-1">
+                                    Human Agent Phone Number
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={action.config?.humanAgentPhone || ''}
+                                    onChange={(e) => handleUpdateActionConfig(action.id, { humanAgentPhone: e.target.value })}
+                                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"
+                                    placeholder="e.g., 27672239798"
+                                  />
+                                  <p className="text-xs text-slate-500 mt-1">
+                                    WhatsApp number to notify when handover occurs (leave empty to use default)
+                                  </p>
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-medium text-slate-400 mb-1">
+                                    Escalation Reason (optional)
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={action.config?.reason || ''}
+                                    onChange={(e) => handleUpdateActionConfig(action.id, { reason: e.target.value })}
+                                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"
+                                    placeholder="e.g., Customer complaint, Product inquiry"
+                                  />
+                                </div>
                               </div>
                             )}
 
