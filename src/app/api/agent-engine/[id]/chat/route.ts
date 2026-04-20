@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-server'
+import { searchAgentProducts } from '@/lib/orderService'
 
 export async function POST(
   request: NextRequest,
@@ -45,6 +46,15 @@ export async function POST(
     if (Array.isArray(history) && history.length > 0) {
       isReturningContact = true
       messageHistory = history
+    }
+
+    const extractProductSearchQuery = (rawMessage: string): string => {
+      return rawMessage
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\b(i|want|need|buy|order|please|for|me|the|a|an|to|show|find|looking|search|price|stock|of|products|product|list|them|all|available|do|you|have|what)\b/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
     }
 
     // Build enhanced system prompt with rules
@@ -93,6 +103,35 @@ export async function POST(
     // Add never-say guidance
     if (agent.never_say) {
       enhancedSystemPrompt += '\n\nNEVER say or use these words/phrases: ' + agent.never_say
+    }
+
+    const productIntentPattern = /\b(product|products|stock|available|price|cost|umuthi|buy|order|purchase)\b/i
+    const listFollowUpPattern = /\b(list|show|them|all|catalog|catalogue)\b/i
+    const recentUserText = (messageHistory || [])
+      .filter((m: any) => (m?.sender || '').toLowerCase() === 'user' || (m?.sender || '').toLowerCase() === 'contact')
+      .slice(-5)
+      .map((m: any) => String(m.content || ''))
+      .join(' ')
+
+    const needsProductContext =
+      productIntentPattern.test(message) ||
+      (listFollowUpPattern.test(message) && productIntentPattern.test(recentUserText))
+
+    if (needsProductContext) {
+      const query = extractProductSearchQuery(message)
+      const liveProducts = await searchAgentProducts(query, query ? 8 : 15)
+      if (liveProducts.success && liveProducts.products.length > 0) {
+        const productLines = liveProducts.products
+          .slice(0, 12)
+          .map((p: any) => `- ${p.name}: R${Number(p.price || 0).toFixed(2)} (stock: ${p.stock_quantity ?? 'unknown'})`)
+          .join('\n')
+
+        enhancedSystemPrompt += `\n\n[LIVE PRODUCT CATALOG for query "${query || '(all products)'}"]:\n${productLines}\nWhen user asks to list products, provide a concise list from this live data first before suggesting website browsing.`
+      } else if (liveProducts.success) {
+        enhancedSystemPrompt += '\n\n[PRODUCT LOOKUP] Live catalog returned no products for this query. Ask one clarifying product preference question (category, symptom, or budget). Do not use fallback immediately.'
+      } else {
+        enhancedSystemPrompt += `\n\n[PRODUCT LOOKUP ERROR] ${liveProducts.error || 'Unknown error'}. Ask one clarifying question and offer to retry lookup.`
+      }
     }
 
     console.log('[AgentChat] Enhanced system prompt built, length:', enhancedSystemPrompt.length)
