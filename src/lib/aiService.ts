@@ -20,9 +20,14 @@ import {
   emitWhatsAppMessageSent
 } from './workflowTriggers'
 import {
+  createOrderFromConversation,
+  extractOrderDetails,
+  getMissingInfo,
   checkBookingAvailability,
   checkBookingsForPhone,
-  checkOrderStatus
+  checkOrderStatus,
+  searchAgentProducts,
+  updateContactFromOrder
 } from './orderService'
 import { runAgentActions } from './agentActions'
 import { notify } from './services/internalNotifier'
@@ -254,6 +259,70 @@ async function injectBookingContext(systemPrompt: string, message: string): Prom
       systemPrompt += `\n\n[AVAILABILITY] No consultation slots available in the next 14 days. Advise the customer to contact us directly on 062 584 2441.` 
     }
   }
+  return systemPrompt
+}
+
+function extractProductSearchQuery(message: string): string {
+  const cleaned = message
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\b(i|want|need|buy|order|please|for|me|the|a|an|to|show|find|looking|search|price|stock|of)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (cleaned.length >= 3) return cleaned
+
+  const fallback = message.toLowerCase().replace(/\s+/g, ' ').trim()
+  return fallback.slice(0, 60)
+}
+
+async function injectCommerceContext(
+  systemPrompt: string,
+  message: string,
+  phone: string,
+  history: any[]
+): Promise<string> {
+  const productIntent = /\b(price|stock|available|have|product|umuthi|buy|order|purchase|cost)\b/i.test(message)
+  const confirmIntent = /\b(confirm|place order|go ahead|proceed|yes order|yes please order|ready to order)\b/i.test(message)
+
+  if (productIntent) {
+    const query = extractProductSearchQuery(message)
+    const search = await searchAgentProducts(query, 5)
+    if (search.success && search.products.length > 0) {
+      const stockLines = search.products
+        .slice(0, 5)
+        .map((p: any) => `- ${p.name}: R${Number(p.price || 0).toFixed(2)} (stock: ${p.stock_quantity ?? 'unknown'})`)
+        .join('\n')
+
+      systemPrompt += `\n\n[LIVE PRODUCT STOCK for query "${query}"]:\n${stockLines}\nOnly promise products with stock > 0 (or unknown stock). If exact product is unavailable, suggest closest in-stock alternatives.`
+    } else if (search.error) {
+      systemPrompt += `\n\n[PRODUCT LOOKUP ERROR] ${search.error}. Ask the customer to retry shortly or specify the exact product name.`
+    }
+  }
+
+  const details = extractOrderDetails(message, history)
+  if (!details) return systemPrompt
+
+  await updateContactFromOrder(phone, details)
+
+  const missing = getMissingInfo(details)
+  if (missing.length > 0) {
+    systemPrompt += `\n\n[ORDER DETAILS PARTIAL] Extracted product: ${details.productName}. Missing: ${missing.join(', ')}. Ask only for these missing fields.`
+    return systemPrompt
+  }
+
+  if (!confirmIntent) {
+    systemPrompt += `\n\n[ORDER READY TO PLACE]\n- Product: ${details.productName}\n- Qty: ${details.quantity || 1}\n- Name: ${details.customerName}\n- Phone: ${details.customerPhone}\n- Delivery: ${details.deliveryMethod} to ${details.deliveryLocation}\nAsk for explicit confirmation before placing order.`
+    return systemPrompt
+  }
+
+  const orderResult = await createOrderFromConversation(phone, details)
+  if (orderResult.success) {
+    systemPrompt += `\n\n[ORDER CREATED]\n- Reference: ${orderResult.orderRef}\n- Payment Link: ${orderResult.paymentUrl || 'not available'}\nConfirm order creation to customer and share payment link clearly.`
+  } else {
+    systemPrompt += `\n\n[ORDER CREATION FAILED] ${orderResult.error || 'Unknown error'}. Explain the issue and help customer adjust product/quantity or details.`
+  }
+
   return systemPrompt
 }
 
@@ -562,15 +631,7 @@ export async function handleIncomingWhatsApp(
     const greetingResult = await injectGreetingRule(systemPrompt, phone, contactName, agent || {} as Agent)
     systemPrompt = greetingResult.systemPrompt
 
-    // ── 7. Inject contextual data (bookings, orders, action results) ──────────
-    systemPrompt = await injectBookingContext(systemPrompt, message)
-    systemPrompt = await injectOrderContext(systemPrompt, message, phone)
-
-    if (agent?.id) {
-      systemPrompt = await injectActionResults(systemPrompt, agent.id, phone, message)
-    }
-
-    // ── 8. Fetch conversation history ─────────────────────────────────────────
+    // ── 7. Fetch conversation history ─────────────────────────────────────────
     const { data: recentMessages } = await supabaseAdmin
       .from('messages')
       .select('content, sender, created_at')
@@ -579,6 +640,15 @@ export async function handleIncomingWhatsApp(
       .limit(30)
 
     const history = (recentMessages || []).reverse()
+
+    // ── 8. Inject contextual data (bookings, orders, commerce, action results) ──────────
+    systemPrompt = await injectBookingContext(systemPrompt, message)
+    systemPrompt = await injectOrderContext(systemPrompt, message, phone)
+    systemPrompt = await injectCommerceContext(systemPrompt, message, phone, history)
+
+    if (agent?.id) {
+      systemPrompt = await injectActionResults(systemPrompt, agent.id, phone, message)
+    }
 
     // ── 9. Build messages array for LLM ──────────────────────────────────────
     const llmMessages: Message[] = [{ role: 'system', content: systemPrompt }]

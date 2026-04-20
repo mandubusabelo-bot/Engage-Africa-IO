@@ -10,11 +10,60 @@ interface OrderDetails {
   pepStoreCode?: string
 }
 
+export async function searchAgentProducts(
+  query: string,
+  limit: number = 10
+): Promise<{ success: boolean; products: AgentProduct[]; error?: string }> {
+  try {
+    const siteUrl = getIntandokaziBaseUrl()
+    const apiSecret = process.env.AGENT_API_SECRET
+
+    if (!apiSecret) {
+      return { success: false, products: [], error: 'Missing AGENT_API_SECRET' }
+    }
+
+    const q = (query || '').trim()
+    const url = `${siteUrl}/api/agent/products/search?q=${encodeURIComponent(q)}&limit=${limit}`
+    const res = await fetch(url, {
+      headers: { 'x-agent-secret': apiSecret }
+    })
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      return {
+        success: false,
+        products: [],
+        error: `Failed to search products (${res.status})${text ? `: ${text.slice(0, 180)}` : ''}`
+      }
+    }
+
+    const data = await res.json().catch(() => null)
+    if (!data?.success) {
+      return { success: false, products: [], error: data?.error || 'Product search failed' }
+    }
+
+    return {
+      success: true,
+      products: (data.products || []) as AgentProduct[]
+    }
+  } catch (error: any) {
+    return { success: false, products: [], error: error.message }
+  }
+}
+
 interface OrderResult {
   success: boolean
   orderRef?: string
   paymentUrl?: string
   error?: string
+}
+
+interface AgentProduct {
+  id: string
+  name: string
+  price: number
+  category?: string
+  stock_quantity?: number | null
 }
 
 function getIntandokaziBaseUrl(): string {
@@ -86,27 +135,22 @@ export async function createOrderFromConversation(
 
     for (const term of searchTerms) {
       console.log(`[Order Service] Searching for product: "${term}"`)
-      const searchResponse = await fetch(`${siteUrl}/api/agent/products/search?q=${encodeURIComponent(term)}`, {
-        headers: { 'x-agent-secret': apiSecret }
-      })
-
-      if (!searchResponse.ok) {
-        const errText = await searchResponse.text().catch(() => '')
-        lastError = `Failed to search products (${searchResponse.status})${errText ? `: ${errText.slice(0, 180)}` : ''}`
+      const searchResult = await searchAgentProducts(term, 10)
+      if (!searchResult.success) {
+        lastError = searchResult.error || 'Search failed'
         console.error(`[Order Service] Search failed for "${term}":`, lastError)
         continue
       }
 
-      const data = await searchResponse.json()
-      if (data.success && data.products && data.products.length > 0) {
-        console.log(`[Order Service] Found ${data.products.length} products for "${term}"`)
-        // Log found product names for debugging
-        data.products.slice(0, 3).forEach((p: any, i: number) => {
-          console.log(`[Order Service]  Match ${i + 1}: "${p.name}" (R${p.price})`)
+      if (searchResult.products.length > 0) {
+        console.log(`[Order Service] Found ${searchResult.products.length} products for "${term}"`)
+        searchResult.products.slice(0, 3).forEach((p: any, i: number) => {
+          console.log(`[Order Service]  Match ${i + 1}: "${p.name}" (R${p.price}) stock=${p.stock_quantity ?? 'n/a'}`)
         })
-        searchData = data
+        searchData = { success: true, products: searchResult.products }
         break
       }
+
       console.log(`[Order Service] No products found for "${term}"`)
     }
 
@@ -116,8 +160,33 @@ export async function createOrderFromConversation(
       return { success: false, error: lastError || `Product "${details.productName}" not found` }
     }
 
-    const product = searchData.products[0]
+    const requestedName = details.productName.toLowerCase().trim()
+    const inStockProducts = (searchData.products || []).filter((p: AgentProduct) => {
+      const stock = p.stock_quantity
+      return stock === null || stock === undefined || stock > 0
+    })
+
+    if (!inStockProducts.length) {
+      return {
+        success: false,
+        error: `"${details.productName}" is currently out of stock`
+      }
+    }
+
+    const product =
+      inStockProducts.find((p: AgentProduct) => p.name.toLowerCase() === requestedName) ||
+      inStockProducts.find((p: AgentProduct) => p.name.toLowerCase().includes(requestedName)) ||
+      inStockProducts[0]
+
     const quantity = details.quantity || 1
+
+    if (product.stock_quantity !== null && product.stock_quantity !== undefined && quantity > product.stock_quantity) {
+      return {
+        success: false,
+        error: `Only ${product.stock_quantity} left for ${product.name}`
+      }
+    }
+
     const totalAmount = product.price * quantity
 
     // Prepare order payload
