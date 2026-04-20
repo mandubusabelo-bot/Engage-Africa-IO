@@ -143,7 +143,20 @@ export async function POST(
     const recentCommerceContext = [recentUserText, messageHistory.map((m: any) => String(m?.content || '')).slice(-3).join(' ')].join(' ').toLowerCase()
     const hasRecentCommerceSignals = /\b(product|products|stock|price|order|payment|eft|bank|pep|mall|delivery|shop)\b/.test(recentCommerceContext)
     const orderFollowUpPattern = /\b(order|buy|purchase|checkout|place it|place one)\b/i
-    const orderIntentActive = orderIntentPattern.test(message) || (orderFollowUpPattern.test(message) && hasRecentCommerceSignals)
+
+    // Detect when the bot just asked for order details (product, name, phone, etc.)
+    const recentAssistantText = (messageHistory || [])
+      .filter((m: any) => {
+        const s = (m?.sender || '').toLowerCase()
+        return s === 'agent' || s === 'ai' || s === 'bot' || s === 'assistant'
+      })
+      .slice(-2)
+      .map((m: any) => String(m.content || ''))
+      .join(' ')
+      .toLowerCase()
+    const botAskedForOrderDetails = /which product|how many|your (full )?name|cellphone|phone number|collection location|place the order/i.test(recentAssistantText)
+
+    const orderIntentActive = orderIntentPattern.test(message) || (orderFollowUpPattern.test(message) && hasRecentCommerceSignals) || botAskedForOrderDetails
     let extractedOrderForFallback: ReturnType<typeof extractOrderDetails> = null
 
     if (orderIntentActive) {
