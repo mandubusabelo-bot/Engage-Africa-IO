@@ -2404,18 +2404,45 @@ function AgentTestDrawer({ agent, onClose }: { agent: any; onClose: () => void }
 
     const userMessage = input.trim()
     setInput('')
-    setMessages(prev => [...prev, { role: 'user', content: userMessage }])
+    const nextMessages = [...messages, { role: 'user' as const, content: userMessage }]
+    setMessages(nextMessages)
     setIsLoading(true)
 
-    // Simulate agent response (in real implementation, call API)
-    setTimeout(() => {
+    try {
+      const history = nextMessages.slice(-20).map((m) => ({
+        sender: m.role === 'agent' ? 'agent' : 'user',
+        content: m.content
+      }))
+
+      const res = await fetch(`/api/agent-engine/${agent.id}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: userMessage,
+          testMode: true,
+          history
+        })
+      })
+
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || `HTTP ${res.status}`)
+      }
+
       setMessages(prev => [...prev, {
         role: 'agent',
-        content: `This is a simulated response. In production, this would call the agent API with your message: "${userMessage}"`,
+        content: data.response || 'No response generated',
         source: 'llm'
       }])
+    } catch (err: any) {
+      setMessages(prev => [...prev, {
+        role: 'agent',
+        content: `Test failed: ${err.message || 'Unknown error'}`,
+        source: 'error'
+      }])
+    } finally {
       setIsLoading(false)
-    }, 1000)
+    }
   }
 
   return (

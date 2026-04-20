@@ -6,8 +6,8 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
-    const { message, conversationId, phone } = await request.json()
-    console.log(`[AgentChat] Request received for agent ${params.id}:`, { message, phone })
+    const { message, conversationId, phone, testMode, history } = await request.json()
+    console.log(`[AgentChat] Request received for agent ${params.id}:`, { message, phone, testMode })
 
     // Get agent configuration
     const { data: agent, error: agentError } = await supabaseAdmin
@@ -27,7 +27,7 @@ export async function POST(
     let isReturningContact = false
     let messageHistory: any[] = []
     
-    if (phone || conversationId) {
+    if (!Array.isArray(history) && (phone || conversationId)) {
       const { data: previousMessages } = await supabaseAdmin
         .from('messages')
         .select('*')
@@ -40,6 +40,11 @@ export async function POST(
         messageHistory = previousMessages.reverse()
         console.log(`[AgentChat] Returning contact detected: ${previousMessages.length} previous messages`)
       }
+    }
+
+    if (Array.isArray(history) && history.length > 0) {
+      isReturningContact = true
+      messageHistory = history
     }
 
     // Build enhanced system prompt with rules
@@ -157,16 +162,18 @@ export async function POST(
     }
 
     // Save AI response to database
+    const persistedPhone = phone || `test-ui-${params.id}`
+
     await supabaseAdmin.from('messages').insert({
       agent_id: params.id,
       content: aiResponse,
       sender: 'agent',
-      phone: phone || conversationId,
+      phone: persistedPhone,
       conversation_id: conversationId
     })
 
     // Send response back via WhatsApp if phone number provided
-    if (phone) {
+    if (phone && !testMode) {
       try {
         await fetch(`${process.env.NEXT_PUBLIC_APP_URL || ''}/api/whatsapp/send`, {
           method: 'POST',
@@ -177,6 +184,8 @@ export async function POST(
       } catch (err: any) {
         console.error('[AgentChat] Failed to send WhatsApp response:', err.message)
       }
+    } else if (testMode) {
+      console.log('[AgentChat] testMode=true, skipping WhatsApp send')
     }
 
     return NextResponse.json({
