@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-server'
-import { searchAgentProducts } from '@/lib/orderService'
+import { extractOrderDetails, getMissingInfo, searchAgentProducts } from '@/lib/orderService'
 
 export async function POST(
   request: NextRequest,
@@ -131,6 +131,27 @@ export async function POST(
         enhancedSystemPrompt += '\n\n[PRODUCT LOOKUP] Live catalog returned no products for this query. Ask one clarifying product preference question (category, symptom, or budget). Do not use fallback immediately.'
       } else {
         enhancedSystemPrompt += `\n\n[PRODUCT LOOKUP ERROR] ${liveProducts.error || 'Unknown error'}. Ask one clarifying question and offer to retry lookup.`
+      }
+    }
+
+    const orderIntentPattern = /\b(place\s+an?\s+order|place\s+order|order\s+for\s+me|buy\s+for\s+me|i\s+want\s+to\s+order|purchase|checkout|can\s+you\s+place\s+an?\s+order)\b/i
+    const orderConfirmPattern = /\b(confirm|place order|go ahead|proceed|yes order|yes please order|ready to order|order now|place it|do it|yes proceed|yes go ahead)\b/i
+    const recentCommerceContext = [recentUserText, messageHistory.map((m: any) => String(m?.content || '')).slice(-3).join(' ')].join(' ').toLowerCase()
+    const hasRecentCommerceSignals = /\b(product|products|stock|price|order|payment|eft|bank|pep|mall|delivery|shop)\b/.test(recentCommerceContext)
+    const orderFollowUpPattern = /\b(order|buy|purchase|checkout|place it|place one)\b/i
+
+    if (orderIntentPattern.test(message) || (orderFollowUpPattern.test(message) && hasRecentCommerceSignals)) {
+      const extractedOrder = extractOrderDetails(message, messageHistory)
+
+      if (!extractedOrder) {
+        enhancedSystemPrompt += '\n\n[ORDER INTENT DETECTED] The customer wants to place an order but key details are missing. Ask for the product first, then collect full name, cellphone number, and collection location (PEP store or mall). Do not use fallback for this.'
+      } else {
+        const missingOrderFields = getMissingInfo(extractedOrder)
+        if (missingOrderFields.length > 0) {
+          enhancedSystemPrompt += `\n\n[ORDER DETAILS PARTIAL] Product: ${extractedOrder.productName}. Missing: ${missingOrderFields.join(', ')}. Ask only for these missing fields and continue order flow.`
+        } else if (!orderConfirmPattern.test(message)) {
+          enhancedSystemPrompt += `\n\n[ORDER READY TO PLACE]\n- Product: ${extractedOrder.productName}\n- Qty: ${extractedOrder.quantity || 1}\n- Name: ${extractedOrder.customerName}\n- Phone: ${extractedOrder.customerPhone}\n- Delivery: ${extractedOrder.deliveryMethod} to ${extractedOrder.deliveryLocation}\nAsk for explicit confirmation before placing order.`
+        }
       }
     }
 
