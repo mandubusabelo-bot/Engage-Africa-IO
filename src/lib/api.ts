@@ -241,7 +241,7 @@ export const api = {
     return handleResponse(response)
   },
 
-  async manageWhatsAppInstance(action: 'create' | 'connect' | 'logout' | 'restart' | 'delete', instanceName?: string) {
+  async manageWhatsAppInstance(action: 'create' | 'connect' | 'logout' | 'restart' | 'delete' | 'sync_webhooks', instanceName?: string) {
     const response = await fetch(`${API_URL}/whatsapp/instances`, {
       method: 'POST',
       headers: {

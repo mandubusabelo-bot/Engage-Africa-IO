@@ -100,7 +100,7 @@ export default function Dashboard() {
     }
   }
 
-  const handleManageInstance = async (action: 'restart' | 'logout' | 'delete' | 'connect') => {
+  const handleManageInstance = async (action: 'restart' | 'logout' | 'delete' | 'connect' | 'sync_webhooks') => {
     try {
       setManagingInstance(true)
       setWhatsAppNotice(`Executing ${action}...`)
@@ -109,7 +109,7 @@ export default function Dashboard() {
       
       if (response.success) {
         setWhatsAppNotice(`${action} completed successfully.`)
-        if (action === 'restart' || action === 'connect') {
+        if (action === 'restart' || action === 'connect' || action === 'sync_webhooks') {
           setTimeout(() => handleRefreshWhatsApp(), 2000)
         }
         if (action === 'logout' || action === 'delete') {
@@ -316,6 +316,14 @@ export default function Dashboard() {
                   >
                     <Plug size={14} className="inline mr-1" />
                     Reconnect
+                  </button>
+                  <button
+                    onClick={() => handleManageInstance('sync_webhooks')}
+                    disabled={managingInstance}
+                    className="px-3 py-2 text-xs text-indigo-300 hover:text-indigo-200 transition-colors bg-indigo-500/10 border border-indigo-500/30 rounded-lg disabled:opacity-50"
+                  >
+                    <RefreshCw size={14} className="inline mr-1" />
+                    Sync Webhooks
                   </button>
                   <button
                     onClick={() => handleManageInstance('logout')}
