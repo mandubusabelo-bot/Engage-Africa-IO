@@ -148,13 +148,14 @@ export async function runAgentActions(params: {
         ...parseInstructionConfig(action.instruction),
         ...(action.config || {})
       }
-      const humanAgentId = mergedConfig.humanAgentId
-      if (!humanAgentId) {
+      // Support both humanAgentPhone (UI field) and humanAgentId (legacy)
+      const humanAgentPhone = mergedConfig.humanAgentPhone || mergedConfig.humanAgentId
+      if (!humanAgentPhone) {
         results.push({
           actionId: action.id,
           actionType: action.action_type,
           success: false,
-          summary: 'Missing humanAgentId in action config'
+          summary: 'Missing humanAgentPhone in action config'
         })
         continue
       }
@@ -173,12 +174,6 @@ export async function runAgentActions(params: {
         .order('created_at', { ascending: false })
         .limit(1)
         .single()
-
-      // Assign to human agent
-      const { error: assignError } = await supabaseAdmin
-        .from('contacts')
-        .update({ assigned_agent_id: humanAgentId, updated_at: new Date().toISOString() })
-        .eq('phone', phone)
 
       // Send WhatsApp notification to human agent using template
       if (conversation?.id && contact?.id) {
@@ -200,8 +195,8 @@ export async function runAgentActions(params: {
       results.push({
         actionId: action.id,
         actionType: action.action_type,
-        success: !assignError,
-        summary: assignError ? assignError.message : `Assigned to human agent ${humanAgentId} and notified via WhatsApp`
+        success: true,
+        summary: `Notified human agent ${humanAgentPhone} via WhatsApp`
       })
       continue
     }
