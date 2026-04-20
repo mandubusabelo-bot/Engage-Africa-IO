@@ -80,9 +80,14 @@ export async function POST(
       enhancedSystemPrompt += '\n\nCUSTOM RULES:\n' + agent.custom_rules
     }
     
+    const isShortOpener = /^\s*(hi|hello|hey|yo|sup|howzit|sawubona|sanibona|hola)\s*[!.?]*\s*$/i.test(message)
+    if (isShortOpener) {
+      enhancedSystemPrompt += '\n\nSHORT-OPENER RULE: If the user sends a short opener like "hi", respond naturally and warmly, then ask one helpful clarifying question about what they need. Do not use the fallback message for greetings.'
+    }
+
     // Add fallback message guidance
     if (agent.fallback_message) {
-      enhancedSystemPrompt += '\n\nIf you cannot answer: ' + agent.fallback_message
+      enhancedSystemPrompt += '\n\nFallback rule: Use this message ONLY when the request is truly outside your scope or critical details are missing after clarifying. Never use fallback for greetings, small talk, or early discovery questions. Fallback message: ' + agent.fallback_message
     }
     
     // Add never-say guidance
@@ -144,9 +149,14 @@ export async function POST(
         const { GoogleGenerativeAI } = await import('@google/generative-ai')
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
         const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+
+        const conversationTranscript = messages
+          .filter((m: any) => m.role !== 'system')
+          .map((m: any) => `${m.role === 'assistant' ? 'Assistant' : 'User'}: ${m.content}`)
+          .join('\n')
         
         const result = await model.generateContent({
-          contents: [{ role: 'user', parts: [{ text: `${agent.system_prompt}\n\nUser: ${message}` }] }]
+          contents: [{ role: 'user', parts: [{ text: `${enhancedSystemPrompt}\n\nConversation:\n${conversationTranscript}\n\nAssistant:` }] }]
         })
         
         aiResponse = result.response.text()
