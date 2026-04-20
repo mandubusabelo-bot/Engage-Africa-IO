@@ -25,6 +25,7 @@ import {
   checkOrderStatus
 } from './orderService'
 import { runAgentActions } from './agentActions'
+import { notify } from './services/internalNotifier'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -336,6 +337,148 @@ function buildSystemPrompt(agent: Agent, contactName: string): string {
   return prompt
 }
 
+// ─── Internal Routing Triggers ────────────────────────────────────────────────
+
+async function triggerPopReceived(
+  phone: string,
+  contactName: string,
+  contactId: string,
+  conversationId: string
+) {
+  // Find active order for this contact
+  const { data: orders } = await supabaseAdmin
+    .from('orders')
+    .select('*')
+    .eq('contact_id', contactId)
+    .in('status', ['collecting', 'awaiting_pop'])
+    .order('created_at', { ascending: false })
+    .limit(1)
+
+  const order = orders?.[0]
+  if (!order) return
+
+  // Notify customer
+  await notify('pop_received_customer', {}, { conversationId, contactId })
+
+  // Notify dispatch
+  await notify('dispatch_new_order', {
+    'contact.name': contactName,
+    'contact.phone': phone,
+    'order.productName': order.product_name || 'Products',
+    'order.qty': String(order.quantity || 1),
+    'order.price': order.price?.toFixed(2) || '0.00',
+    'order.totalAmount': order.total_amount?.toFixed(2) || order.price?.toFixed(2) || '0.00',
+    'order.collectionDetails': order.collection_details || order.delivery_address || 'N/A',
+    'order.contactName': order.contact_name || contactName,
+    'dispatch.timestamp': new Date().toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })
+  }, { role: 'dispatch', conversationId, orderId: order.id })
+
+  // Update order status
+  await supabaseAdmin
+    .from('orders')
+    .update({ status: 'pop_received', updated_at: new Date().toISOString() })
+    .eq('id', order.id)
+
+  // Add internal note
+  await notify('escalation_internal_note', {
+    'escalation.reason': 'Proof of payment received',
+    'escalation.lastMessage': 'Image/Pop uploaded by customer'
+  }, { conversationId })
+
+  // Add labels to conversation
+  await addConversationLabels(conversationId, ['pop-received', 'awaiting-dispatch'])
+}
+
+async function triggerPendingOrderNotification(
+  phone: string,
+  contactName: string,
+  contactId: string,
+  conversationId: string
+) {
+  // Find the most recent order awaiting payment
+  const { data: orders } = await supabaseAdmin
+    .from('orders')
+    .select('*')
+    .eq('contact_id', contactId)
+    .in('status', ['awaiting_payment', 'collecting'])
+    .order('created_at', { ascending: false })
+    .limit(1)
+
+  const order = orders?.[0]
+  if (!order) return
+
+  // Notify dispatch about pending order
+  await notify('dispatch_pending_order', {
+    'contact.name': contactName,
+    'contact.phone': phone,
+    'order.productName': order.product_name || 'Products',
+    'order.qty': String(order.quantity || 1),
+    'order.price': order.price?.toFixed(2) || '0.00',
+    'order.totalAmount': order.total_amount?.toFixed(2) || order.price?.toFixed(2) || '0.00',
+    'order.collectionDetails': order.collection_details || order.delivery_address || 'N/A'
+  }, { role: 'dispatch', conversationId, orderId: order.id })
+
+  // Update order status to awaiting_payment
+  await supabaseAdmin
+    .from('orders')
+    .update({ status: 'awaiting_payment', updated_at: new Date().toISOString() })
+    .eq('id', order.id)
+}
+
+async function triggerHumanEscalation(
+  phone: string,
+  contactName: string,
+  contactId: string,
+  conversationId: string,
+  reason: string,
+  lastMessage: string
+) {
+  // Notify human agent
+  await notify('escalation_human', {
+    'contact.name': contactName,
+    'contact.phone': phone,
+    'escalation.reason': reason,
+    'escalation.lastMessage': lastMessage,
+    'conversation.id': conversationId
+  }, { role: 'human_agent', conversationId, contactId })
+
+  // Add internal note
+  await notify('escalation_internal_note', {
+    'escalation.reason': reason,
+    'escalation.lastMessage': lastMessage
+  }, { conversationId })
+
+  // Add label
+  await addConversationLabels(conversationId, ['needs-human'])
+
+  // Update conversation status
+  await supabaseAdmin
+    .from('conversations')
+    .update({ 
+      status: 'pending_human',
+      assigned_to_human: true,
+      escalation_reason: reason,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', conversationId)
+}
+
+async function addConversationLabels(conversationId: string, labels: string[]) {
+  const { data: conv } = await supabaseAdmin
+    .from('conversations')
+    .select('labels')
+    .eq('id', conversationId)
+    .single()
+
+  const currentLabels = conv?.labels || []
+  const newLabels = [...new Set([...currentLabels, ...labels])]
+
+  await supabaseAdmin
+    .from('conversations')
+    .update({ labels: newLabels, updated_at: new Date().toISOString() })
+    .eq('id', conversationId)
+}
+
 // ─── Main handler ─────────────────────────────────────────────────────────────
 
 export async function handleIncomingWhatsApp(
@@ -405,6 +548,40 @@ export async function handleIncomingWhatsApp(
       sender: 'user',
       phone
     })
+
+    // ── 3.5 Check for internal routing triggers ───────────────────────────────
+    // Get conversation ID for this contact
+    const { data: conversation } = await supabaseAdmin
+      .from('conversations')
+      .select('id, labels')
+      .eq('contact_id', contact?.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single()
+
+    const conversationId = conversation?.id
+
+    // Check for escalation keywords
+    const escalationKeywords = [
+      'complaint', 'problem', 'issue', 'refund', 'exchange',
+      'not received', 'late delivery', 'wrong product',
+      'reaction', 'allergy', 'skin problem',
+      'dispute', 'payment issue', 'complaint'
+    ]
+    const hasEscalationKeyword = escalationKeywords.some(kw => 
+      message.toLowerCase().includes(kw.toLowerCase())
+    )
+
+    if (hasEscalationKeyword && conversationId && contact?.id) {
+      await triggerHumanEscalation(
+        phone,
+        contactName,
+        contact.id,
+        conversationId,
+        'Customer mentioned: ' + escalationKeywords.find(kw => message.toLowerCase().includes(kw.toLowerCase())),
+        message
+      )
+    }
 
     // ── 4. Build system prompt from database agent ────────────────────────────
     let systemPrompt = buildSystemPrompt(agent || {} as Agent, contactName)
