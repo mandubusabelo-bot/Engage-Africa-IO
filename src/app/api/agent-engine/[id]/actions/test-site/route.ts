@@ -1,4 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
+import {
+  createOrderFromConversation,
+  extractOrderDetails,
+  getMissingInfo,
+  searchAgentProducts
+} from '@/lib/orderService'
 
 // POST /api/agent-engine/[id]/actions/test-site - Test connectivity to external site
 export async function POST(request: NextRequest) {
@@ -8,9 +14,18 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { url: targetUrl } = await request.json()
+    const {
+      url: targetUrl,
+      sampleMessage,
+      samplePhone,
+      sampleHistory,
+      simulateOrderCreate
+    } = await request.json()
     const siteUrl = targetUrl || process.env.NEXT_SITE_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://intandokaziherbal.co.za'
     const apiSecret = process.env.AGENT_API_SECRET
+    const testMessage = (sampleMessage || 'I want to buy umuthi wenhlanhla').trim()
+    const testPhone = (samplePhone || '27600000000').trim()
+    const history = Array.isArray(sampleHistory) ? sampleHistory : []
 
     log('info', `Testing connectivity to: ${siteUrl}`)
 
@@ -26,6 +41,65 @@ export async function POST(request: NextRequest) {
       }
     } catch (err: any) {
       log('error', `Site unreachable: ${err.message}`)
+    }
+
+    // Test 8: Commerce flow trigger diagnostics
+    log('info', '--- Test 8: Commerce flow diagnostics ---')
+    log('info', `Sample message: "${testMessage}"`)
+    log('info', `Sample phone: ${testPhone}`)
+
+    const productIntent = /\b(price|stock|available|have|product|umuthi|buy|order|purchase|cost)\b/i.test(testMessage)
+    const confirmIntent = /\b(confirm|place order|go ahead|proceed|yes order|yes please order|ready to order)\b/i.test(testMessage)
+    log(productIntent ? 'success' : 'warn', `Product intent ${productIntent ? 'detected' : 'NOT detected'}`)
+    log(confirmIntent ? 'success' : 'warn', `Order confirmation intent ${confirmIntent ? 'detected' : 'NOT detected'}`)
+
+    const extracted = extractOrderDetails(testMessage, history)
+    if (!extracted) {
+      log('warn', 'Order detail extraction did NOT fire (no usable purchase details found)')
+    } else {
+      log('success', `Order details extracted: product=${extracted.productName}, name=${extracted.customerName || 'n/a'}, phone=${extracted.customerPhone || 'n/a'}, delivery=${extracted.deliveryLocation || 'n/a'}`)
+
+      const missing = getMissingInfo(extracted)
+      if (missing.length > 0) {
+        log('warn', `Order flow blocked by missing fields: ${missing.join(', ')}`)
+      } else {
+        log('success', 'All required order fields are present')
+      }
+
+      if (productIntent) {
+        const productSearch = await searchAgentProducts(extracted.productName, 5)
+        if (productSearch.success) {
+          log('success', `Live product search returned ${productSearch.products.length} result(s) for "${extracted.productName}"`)
+          productSearch.products.slice(0, 3).forEach((p: any, i: number) => {
+            log('info', `  Match ${i + 1}: ${p.name} — R${Number(p.price || 0).toFixed(2)} (stock: ${p.stock_quantity ?? 'unknown'})`)
+          })
+        } else {
+          log('error', `Live product search failed: ${productSearch.error || 'Unknown error'}`)
+        }
+      }
+
+      if (simulateOrderCreate === true) {
+        if (missing.length > 0) {
+          log('warn', 'Skipping live order creation (missing required fields)')
+        } else if (!confirmIntent) {
+          log('warn', 'Skipping live order creation (confirmation trigger not detected)')
+        } else {
+          log('info', 'Attempting LIVE order creation test...')
+          const orderResult = await createOrderFromConversation(testPhone, extracted)
+          if (orderResult.success) {
+            log('success', `Live order created: ${orderResult.orderRef || 'N/A'}`)
+            if (orderResult.paymentUrl) {
+              log('success', `Payment URL generated: ${orderResult.paymentUrl}`)
+            } else {
+              log('warn', 'Order created but no payment URL returned')
+            }
+          } else {
+            log('error', `Live order creation failed: ${orderResult.error || 'Unknown error'}`)
+          }
+        }
+      } else {
+        log('info', 'Live order creation not executed (set simulateOrderCreate=true to test full order placement)')
+      }
     }
 
     // Test 2: Store page

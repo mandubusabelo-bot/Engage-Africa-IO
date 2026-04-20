@@ -2264,7 +2264,11 @@ export default function AgentDetail() {
                         const res = await fetch(`/api/agent-engine/${agentId}/actions/test-site`, {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({})
+                          body: JSON.stringify({
+                            sampleMessage: testActionMessage,
+                            samplePhone: testActionPhone,
+                            simulateOrderCreate: false
+                          })
                         })
                         const data = await res.json()
                         setSiteTestLogs(data.logs || [])
