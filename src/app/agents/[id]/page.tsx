@@ -82,6 +82,10 @@ export default function AgentDetail() {
   const [siteTestLogs, setSiteTestLogs] = useState<Array<{ ts: string; level: string; msg: string }>>([])
   const [siteTestRunning, setSiteTestRunning] = useState(false)
   
+  // Track in-flight action updates to prevent duplicates
+  const pendingActionUpdates = useRef<Map<string, Promise<any>>>(new Map())
+  const actionIdMap = useRef<Map<string, string>>(new Map()) // Maps default_ IDs to real DB IDs
+  
   // Form states
   const [newKnowledge, setNewKnowledge] = useState({ title: '', content: '' })
   const [editKnowledgeForm, setEditKnowledgeForm] = useState({ title: '', content: '' })
@@ -369,31 +373,66 @@ export default function AgentDetail() {
   }
 
   const handleUpdateAction = async (actionId: string, updates: Partial<AgentAction>) => {
-    const previousActions = actions
+    // Check if we already have a real DB ID for this default action
+    const realId = actionIdMap.current.get(actionId)
+    const effectiveId = realId || actionId
     const isDefaultAction = actionId.startsWith('default_')
+
+    // Update UI immediately
+    const previousActions = actions
     setActions(current => current.map(a => a.id === actionId ? { ...a, ...updates } : a))
 
-    try {
-      const response = await fetch(`/api/agent-engine/${agentId}/actions/${actionId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates)
-      })
-      const result = await response.json()
-      if (!result.success) throw new Error('Failed to update')
-      
-      // If this was a default action that was just created, update the ID in state
-      if (isDefaultAction && result.data?.id && result.data.id !== actionId) {
-        setActions(current => current.map(a => 
-          a.id === actionId ? { ...a, ...result.data } : a
-        ))
+    // Debounce: if there's already a pending update for this action, wait for it
+    const pendingKey = effectiveId
+    const existingPromise = pendingActionUpdates.current.get(pendingKey)
+    if (existingPromise) {
+      console.log(`[Action Update] Waiting for pending update for ${effectiveId}`)
+      try {
+        await existingPromise
+      } catch (e) {
+        // Previous failed, continue with this one
       }
-      
+    }
+
+    // Create the update promise
+    const updatePromise = (async () => {
+      try {
+        console.log(`[Action Update] ${isDefaultAction ? 'Creating' : 'Updating'} action ${effectiveId}`, updates)
+        const response = await fetch(`/api/agent-engine/${agentId}/actions/${effectiveId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updates)
+        })
+        const result = await response.json()
+        if (!result.success) throw new Error('Failed to update')
+        
+        // If this was a default action that was just created, update the ID mapping
+        if (isDefaultAction && result.data?.id && result.data.id !== actionId) {
+          console.log(`[Action Update] Mapping ${actionId} -> ${result.data.id}`)
+          actionIdMap.current.set(actionId, result.data.id)
+          setActions(current => current.map(a => 
+            a.id === actionId ? { ...a, ...result.data } : a
+          ))
+        }
+        
+        return result
+      } catch (error) {
+        setActions(previousActions)
+        console.error('Failed to update action:', error)
+        showToast('Failed to update action', 'error')
+        throw error
+      } finally {
+        pendingActionUpdates.current.delete(pendingKey)
+      }
+    })()
+
+    pendingActionUpdates.current.set(pendingKey, updatePromise)
+    
+    try {
+      await updatePromise
       showToast('Action updated', 'success')
-    } catch (error) {
-      setActions(previousActions)
-      console.error('Failed to update action:', error)
-      showToast('Failed to update action', 'error')
+    } catch (e) {
+      // Error already handled
     }
   }
 
