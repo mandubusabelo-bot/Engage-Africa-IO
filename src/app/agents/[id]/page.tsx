@@ -65,7 +65,7 @@ export default function AgentDetail() {
   const [saving, setSaving] = useState(false)
   
   // Tab state - expanded tabs
-  const [activeTab, setActiveTab] = useState<'identity' | 'actions' | 'knowledge' | 'memory' | 'behavior' | 'rules' | 'commerce'>('identity')
+  const [activeTab, setActiveTab] = useState<'identity' | 'actions' | 'knowledge' | 'memory' | 'behavior' | 'rules' | 'commerce' | 'templates'>('identity')
   
   // Modal states
   const [showAddKnowledge, setShowAddKnowledge] = useState(false)
@@ -88,6 +88,20 @@ export default function AgentDetail() {
   const [selectedKnowledgeId, setSelectedKnowledgeId] = useState('')
   const [kbTestQuery, setKbTestQuery] = useState('')
   const [kbTestResults, setKbTestResults] = useState<any>(null)
+  
+  // Templates state
+  const [templates, setTemplates] = useState<Array<{
+    id: string
+    trigger_key: string
+    label: string
+    description: string
+    template: string
+    available_variables: string
+    channel: string
+    active: boolean
+  }>>([])
+  const [editingTemplate, setEditingTemplate] = useState<any>(null)
+  const [showEditTemplate, setShowEditTemplate] = useState(false)
   
   // Toast
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null)
@@ -171,6 +185,17 @@ export default function AgentDetail() {
           config: {}
         }))
         setActions(defaultActions)
+      }
+
+      // Load message templates
+      try {
+        const templatesRes = await fetch('/api/internal-prompts')
+        const templatesJson = await templatesRes.json()
+        if (templatesJson.success) {
+          setTemplates(templatesJson.data || [])
+        }
+      } catch (error) {
+        console.error('Failed to load templates:', error)
       }
     } catch (error) {
       console.error('Failed to load data:', error)
@@ -297,6 +322,26 @@ export default function AgentDetail() {
     setEditingKnowledge(item)
     setEditKnowledgeForm({ title: item.title, content: item.content })
     setShowEditKnowledge(true)
+  }
+
+  const handleUpdateTemplate = async (templateId: string, updates: any) => {
+    const previousTemplates = templates
+    setTemplates(current => current.map(t => t.id === templateId ? { ...t, ...updates } : t))
+
+    try {
+      const response = await fetch(`/api/internal-prompts/${templateId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates)
+      })
+      const result = await response.json()
+      if (!result.success) throw new Error('Failed to update')
+      showToast('Template updated', 'success')
+    } catch (error) {
+      setTemplates(previousTemplates)
+      console.error('Failed to update template:', error)
+      showToast('Failed to update template', 'error')
+    }
   }
 
   const handleUpdateAgent = async (updates: any) => {
@@ -545,6 +590,7 @@ export default function AgentDetail() {
             { id: 'behavior', label: 'Behavior', icon: Sliders },
             { id: 'rules', label: 'Rules', icon: Shield },
             { id: 'commerce', label: 'Commerce & Payments', icon: ShoppingCart },
+            { id: 'templates', label: 'Message Templates', icon: MessageSquare },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -1688,6 +1734,85 @@ export default function AgentDetail() {
           </div>
         )}
 
+        {/* MESSAGE TEMPLATES TAB */}
+        {activeTab === 'templates' && (
+          <div className="space-y-6">
+            <div className="bg-slate-900 rounded-xl p-6 border border-slate-800">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <MessageSquare className="text-cyan-400" size={20} />
+                  <h3 className="text-lg font-semibold text-white">Internal Message Templates</h3>
+                </div>
+                <p className="text-xs text-slate-500">Templates for staff notifications and customer messages</p>
+              </div>
+
+              <div className="space-y-3">
+                {templates.length === 0 ? (
+                  <div className="text-center py-8 text-slate-500">
+                    <MessageSquare size={48} className="mx-auto mb-3 opacity-30" />
+                    <p>No templates found</p>
+                    <p className="text-sm mt-1">Run database migration to seed default templates</p>
+                  </div>
+                ) : (
+                  templates.map((template) => (
+                    <div key={template.id} className="bg-slate-800 rounded-lg p-4 border border-slate-700">
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <h4 className="font-medium text-white">{template.label}</h4>
+                            <span className={`px-2 py-0.5 rounded text-xs ${
+                              template.channel === 'whatsapp' ? 'bg-emerald-500/20 text-emerald-300' :
+                              template.channel === 'conversation' ? 'bg-cyan-500/20 text-cyan-300' :
+                              'bg-purple-500/20 text-purple-300'
+                            }`}>
+                              {template.channel}
+                            </span>
+                            {!template.active && (
+                              <span className="px-2 py-0.5 rounded text-xs bg-slate-700 text-slate-400">
+                                Inactive
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-500 mb-2">{template.description}</p>
+                          <code className="text-xs text-slate-400 bg-slate-900 px-2 py-1 rounded">
+                            {template.trigger_key}
+                          </code>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setEditingTemplate(template)
+                            setShowEditTemplate(true)
+                          }}
+                          className="p-1.5 text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 rounded transition-colors"
+                          title="Edit template"
+                        >
+                          <Settings size={14} />
+                        </button>
+                      </div>
+
+                      <div className="bg-slate-950 rounded-lg p-3 border border-slate-800">
+                        <p className="text-sm text-slate-300 whitespace-pre-wrap font-mono">
+                          {template.template.slice(0, 200)}{template.template.length > 200 ? '...' : ''}
+                        </p>
+                      </div>
+
+                      {template.available_variables && (
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {template.available_variables.split(',').map((v) => (
+                            <span key={v} className="text-xs text-slate-500 bg-slate-900 px-2 py-0.5 rounded">
+                              {`{{${v.trim()}}}`}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* MODALS */}
 
         {/* Add Knowledge Modal */}
@@ -1781,6 +1906,119 @@ export default function AgentDetail() {
                   onClick={handleEditKnowledge}
                   disabled={!editKnowledgeForm.title || !editKnowledgeForm.content}
                   className="flex-1 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-slate-950 rounded-lg font-medium transition-colors disabled:opacity-50"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Edit Template Modal */}
+        {showEditTemplate && editingTemplate && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-slate-900 rounded-xl p-6 w-full max-w-3xl border border-slate-800 max-h-[90vh] overflow-y-auto">
+              <h3 className="text-xl font-bold text-white mb-4">Edit Template</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Label</label>
+                  <input
+                    type="text"
+                    value={editingTemplate.label}
+                    onChange={(e) => setEditingTemplate({ ...editingTemplate, label: e.target.value })}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Description</label>
+                  <input
+                    type="text"
+                    value={editingTemplate.description}
+                    onChange={(e) => setEditingTemplate({ ...editingTemplate, description: e.target.value })}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Channel</label>
+                  <select
+                    value={editingTemplate.channel}
+                    onChange={(e) => setEditingTemplate({ ...editingTemplate, channel: e.target.value })}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-cyan-500"
+                  >
+                    <option value="whatsapp">WhatsApp (to staff)</option>
+                    <option value="conversation">Conversation (to customer)</option>
+                    <option value="internal_note">Internal Note (private)</option>
+                  </select>
+                </div>
+                <div className="flex items-center gap-3">
+                  <label className="text-sm font-medium text-slate-300">Active</label>
+                  <button
+                    onClick={() => setEditingTemplate({ ...editingTemplate, active: !editingTemplate.active })}
+                    className={`relative w-12 h-6 rounded-full transition-colors ${
+                      editingTemplate.active ? 'bg-cyan-500' : 'bg-slate-700'
+                    }`}
+                  >
+                    <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                      editingTemplate.active ? 'translate-x-6' : ''
+                    }`} />
+                  </button>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Template</label>
+                  <textarea
+                    value={editingTemplate.template}
+                    onChange={(e) => setEditingTemplate({ ...editingTemplate, template: e.target.value })}
+                    rows={12}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-cyan-500 font-mono text-sm"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    Use {'{{variable}}'} syntax for dynamic values. Use {'{{#if variable}}'}content{'{{/if}}'} for conditionals.
+                  </p>
+                </div>
+                {editingTemplate.available_variables && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-2">Available Variables (click to copy)</label>
+                    <div className="flex flex-wrap gap-2">
+                      {editingTemplate.available_variables.split(',').map((v: string) => (
+                        <button
+                          key={v}
+                          onClick={() => {
+                            const varName = `{{${v.trim()}}}`
+                            navigator.clipboard.writeText(varName)
+                            showToast(`Copied ${varName}`, 'info')
+                          }}
+                          className="text-xs text-slate-400 bg-slate-800 hover:bg-slate-700 px-2 py-1 rounded transition-colors"
+                        >
+                          {`{{${v.trim()}}}`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={() => {
+                    setShowEditTemplate(false)
+                    setEditingTemplate(null)
+                  }}
+                  className="flex-1 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    handleUpdateTemplate(editingTemplate.id, {
+                      label: editingTemplate.label,
+                      description: editingTemplate.description,
+                      template: editingTemplate.template,
+                      channel: editingTemplate.channel,
+                      active: editingTemplate.active
+                    })
+                    setShowEditTemplate(false)
+                    setEditingTemplate(null)
+                  }}
+                  className="flex-1 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-slate-950 rounded-lg font-medium transition-colors"
                 >
                   Save Changes
                 </button>
