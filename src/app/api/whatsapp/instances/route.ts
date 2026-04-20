@@ -5,12 +5,45 @@ function getEvolutionConfig() {
   const evolutionApiUrl = rawUrl && !rawUrl.startsWith('http') ? `https://${rawUrl}` : rawUrl
   const evolutionApiKey = process.env.EVOLUTION_API_KEY
   const defaultInstanceName = process.env.EVOLUTION_INSTANCE_NAME
+  const webhookUrl = process.env.EVOLUTION_WEBHOOK_URL || (process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/api/whatsapp/webhook` : null)
 
   if (!evolutionApiUrl || !evolutionApiKey) {
     return { error: 'Missing Evolution API config (EVOLUTION_API_URL / EVOLUTION_API_KEY)' }
   }
 
-  return { evolutionApiUrl, evolutionApiKey, defaultInstanceName }
+  return { evolutionApiUrl, evolutionApiKey, defaultInstanceName, webhookUrl }
+}
+
+// Auto-register webhook for an instance
+async function registerWebhookForInstance(
+  evolutionApiUrl: string,
+  evolutionApiKey: string,
+  instanceName: string,
+  webhookUrl: string
+) {
+  try {
+    const response = await fetch(`${evolutionApiUrl}/webhook/set/${instanceName}`, {
+      method: 'POST',
+      headers: {
+        'apikey': evolutionApiKey,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        webhook: {
+          enabled: true,
+          url: webhookUrl,
+          events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE', 'QRCODE_UPDATED', 'SEND_MESSAGE']
+        }
+      })
+    })
+
+    const data = await response.json()
+    console.log(`[Evolution] Webhook registered for ${instanceName}:`, response.ok ? 'success' : 'failed', data)
+    return { success: response.ok, data }
+  } catch (error: any) {
+    console.error(`[Evolution] Failed to register webhook for ${instanceName}:`, error.message)
+    return { success: false, error: error.message }
+  }
 }
 
 async function evolutionRequest(
@@ -69,7 +102,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: config.error }, { status: 400 })
     }
 
-    const { evolutionApiUrl, evolutionApiKey, defaultInstanceName } = config
+    const { evolutionApiUrl, evolutionApiKey, defaultInstanceName, webhookUrl } = config
     const body = await request.json()
     const action = body?.action as string | undefined
     const instanceName = body?.instanceName || defaultInstanceName
@@ -99,8 +132,14 @@ export async function POST(request: NextRequest) {
         }
       )
 
+      // Auto-register webhook if creation succeeded
+      let webhookResult = null
+      if (result.ok && webhookUrl) {
+        webhookResult = await registerWebhookForInstance(evolutionApiUrl, evolutionApiKey, newInstanceName, webhookUrl)
+      }
+
       return NextResponse.json(
-        { success: result.ok, action, instanceName: newInstanceName, data: result.data },
+        { success: result.ok, action, instanceName: newInstanceName, data: result.data, webhook: webhookResult },
         { status: result.ok ? 200 : result.status || 500 }
       )
     }
@@ -112,8 +151,14 @@ export async function POST(request: NextRequest) {
         'GET'
       )
 
+      // Auto-register webhook on connect (ensures webhook is set after restart/reconnect)
+      let webhookResult = null
+      if (result.ok && webhookUrl) {
+        webhookResult = await registerWebhookForInstance(evolutionApiUrl, evolutionApiKey, instanceName, webhookUrl)
+      }
+
       return NextResponse.json(
-        { success: result.ok, action, instanceName, data: result.data },
+        { success: result.ok, action, instanceName, data: result.data, webhook: webhookResult },
         { status: result.ok ? 200 : result.status || 500 }
       )
     }
@@ -144,6 +189,12 @@ export async function POST(request: NextRequest) {
         'GET'
       )
 
+      // Auto-register webhook after restart
+      let webhookResult = null
+      if (connectResult.ok && webhookUrl) {
+        webhookResult = await registerWebhookForInstance(evolutionApiUrl, evolutionApiKey, instanceName, webhookUrl)
+      }
+
       const success = connectResult.ok || logoutResult.ok
       return NextResponse.json(
         {
@@ -153,7 +204,8 @@ export async function POST(request: NextRequest) {
           data: {
             logout: logoutResult,
             connect: connectResult
-          }
+          },
+          webhook: webhookResult
         },
         { status: success ? 200 : 500 }
       )
