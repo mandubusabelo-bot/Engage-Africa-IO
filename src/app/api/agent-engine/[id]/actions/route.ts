@@ -24,13 +24,20 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
+    console.log(`[GET Actions] Loading actions for agent: ${params.id}`)
+    
     const { data: dbActions, error } = await supabaseAdmin
       .from('agent_actions')
       .select('*')
       .eq('agent_id', params.id)
       .order('priority', { ascending: false })
 
-    if (error) throw error
+    if (error) {
+      console.error(`[GET Actions] Database error:`, error)
+      throw error
+    }
+
+    console.log(`[GET Actions] Found ${dbActions?.length || 0} actions in DB:`, dbActions?.map((a: any) => ({ id: a.id, type: a.action_type, enabled: a.is_enabled })))
 
     // Merge DB actions with defaults - ensure all types exist
     const dbActionTypes = new Set((dbActions || []).map((a: any) => a.action_type))
@@ -52,6 +59,7 @@ export async function GET(
       }
     }
 
+    console.log(`[GET Actions] Returning ${allActions.length} total actions`)
     return NextResponse.json({ success: true, data: allActions })
   } catch (error: any) {
     console.error('Get agent actions error:', error)

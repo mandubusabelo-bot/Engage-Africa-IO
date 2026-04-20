@@ -10,8 +10,11 @@ export async function PUT(
     const updates = await request.json()
     const { id: agentId, actionId } = params
 
+    console.log(`[PUT Action] agentId=${agentId}, actionId=${actionId}, updates=`, updates)
+
     // Check if this is a default action (ID starts with 'default_')
     const isDefaultAction = actionId?.startsWith('default_')
+    console.log(`[PUT Action] isDefaultAction=${isDefaultAction}`)
 
     // Whitelist known DB columns to avoid sending unknown fields
     const allowedFields = [
@@ -50,6 +53,7 @@ export async function PUT(
         createPayload.config = updates.config ?? null
       }
 
+      console.log(`[PUT Action] Creating action with payload:`, createPayload)
       const createResult = await supabaseAdmin
         .from('agent_actions')
         .insert(createPayload)
@@ -58,6 +62,7 @@ export async function PUT(
 
       data = createResult.data
       error = createResult.error
+      console.log(`[PUT Action] Create result:`, { data: data ? { id: data.id, type: data.action_type } : null, error: error?.message })
     } else {
       // Update existing action
       if ('config' in updates) {
