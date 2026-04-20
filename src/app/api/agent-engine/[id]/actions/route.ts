@@ -85,26 +85,54 @@ export async function PUT(
       let data: any = null
       let error: any = null
 
-      const withConfigResult = await supabaseAdmin
-        .from('agent_actions')
-        .update(payloadWithConfig)
-        .eq('id', action.id)
-        .select()
-        .single()
+      // Check if this is a default action (ID starts with 'default_')
+      const isDefaultAction = action.id?.startsWith('default_')
 
-      data = withConfigResult.data
-      error = withConfigResult.error
+      if (isDefaultAction) {
+        // Create new action in database
+        const createPayload = {
+          agent_id: params.id,
+          action_type: action.action_type,
+          is_enabled: action.is_enabled,
+          trigger_condition: action.trigger_condition || '',
+          instruction: action.instruction || '',
+          priority: action.priority || 'medium',
+          config: action.config ?? null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }
 
-      if (error && String(error.message || '').toLowerCase().includes("column 'config'")) {
-        const fallbackResult = await supabaseAdmin
+        const createResult = await supabaseAdmin
           .from('agent_actions')
-          .update(basePayload)
+          .insert(createPayload)
+          .select()
+          .single()
+
+        data = createResult.data
+        error = createResult.error
+      } else {
+        // Update existing action
+        const withConfigResult = await supabaseAdmin
+          .from('agent_actions')
+          .update(payloadWithConfig)
           .eq('id', action.id)
           .select()
           .single()
 
-        data = fallbackResult.data
-        error = fallbackResult.error
+        data = withConfigResult.data
+        error = withConfigResult.error
+
+        if (error && String(error.message || '').toLowerCase().includes("column 'config'")) {
+          const fallbackResult = await supabaseAdmin
+            .from('agent_actions')
+            .update(basePayload)
+            .eq('id', action.id)
+            .select()
+            .single()
+
+          data = fallbackResult.data
+          error = fallbackResult.error
+        }
       }
 
       if (error) throw error
