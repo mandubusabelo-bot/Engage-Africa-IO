@@ -69,6 +69,8 @@ export default function AgentDetail() {
   
   // Modal states
   const [showAddKnowledge, setShowAddKnowledge] = useState(false)
+  const [showEditKnowledge, setShowEditKnowledge] = useState(false)
+  const [editingKnowledge, setEditingKnowledge] = useState<KnowledgeItem | null>(null)
   const [showLinkKnowledge, setShowLinkKnowledge] = useState(false)
   const [showTestDrawer, setShowTestDrawer] = useState(false)
   const [showTestActionDrawer, setShowTestActionDrawer] = useState<string | null>(null)
@@ -82,6 +84,7 @@ export default function AgentDetail() {
   
   // Form states
   const [newKnowledge, setNewKnowledge] = useState({ title: '', content: '' })
+  const [editKnowledgeForm, setEditKnowledgeForm] = useState({ title: '', content: '' })
   const [selectedKnowledgeId, setSelectedKnowledgeId] = useState('')
   const [kbTestQuery, setKbTestQuery] = useState('')
   const [kbTestResults, setKbTestResults] = useState<any>(null)
@@ -259,6 +262,41 @@ export default function AgentDetail() {
       console.error('Failed to delete knowledge:', error)
       showToast('Failed to delete knowledge', 'error')
     }
+  }
+
+  const handleEditKnowledge = async () => {
+    if (!editingKnowledge || !editKnowledgeForm.title || !editKnowledgeForm.content) return
+
+    try {
+      const response = await fetch(`/api/knowledge-base/${editingKnowledge.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: editKnowledgeForm.title,
+          content: editKnowledgeForm.content,
+          agent_id: agentId
+        })
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        setShowEditKnowledge(false)
+        setEditingKnowledge(null)
+        setEditKnowledgeForm({ title: '', content: '' })
+        loadData()
+        showToast('Knowledge updated', 'success')
+      }
+    } catch (error) {
+      console.error('Failed to update knowledge:', error)
+      showToast('Failed to update knowledge', 'error')
+    }
+  }
+
+  const openEditModal = (item: KnowledgeItem) => {
+    setEditingKnowledge(item)
+    setEditKnowledgeForm({ title: item.title, content: item.content })
+    setShowEditKnowledge(true)
   }
 
   const handleUpdateAgent = async (updates: any) => {
@@ -1061,6 +1099,13 @@ export default function AgentDetail() {
                         </div>
                         <div className="flex gap-1">
                           <button
+                            onClick={() => openEditModal(item)}
+                            className="p-1.5 text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 rounded transition-colors"
+                            title="Edit"
+                          >
+                            <Settings size={14} />
+                          </button>
+                          <button
                             onClick={() => handleReindexKnowledge(item.id)}
                             className="p-1.5 text-slate-400 hover:text-cyan-400 hover:bg-cyan-500/10 rounded transition-colors"
                             title="Re-index"
@@ -1688,6 +1733,56 @@ export default function AgentDetail() {
                   className="flex-1 px-4 py-2 bg-cyan-500 hover:bg-cyan-600 text-slate-950 rounded-lg font-medium transition-colors disabled:opacity-50"
                 >
                   Add Knowledge
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Edit Knowledge Modal */}
+        {showEditKnowledge && editingKnowledge && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-slate-900 rounded-xl p-6 w-full max-w-2xl border border-slate-800">
+              <h3 className="text-xl font-bold text-white mb-4">Edit Knowledge</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Title</label>
+                  <input
+                    type="text"
+                    value={editKnowledgeForm.title}
+                    onChange={(e) => setEditKnowledgeForm({ ...editKnowledgeForm, title: e.target.value })}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-cyan-500"
+                    placeholder="e.g., Product Information"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Content</label>
+                  <textarea
+                    value={editKnowledgeForm.content}
+                    onChange={(e) => setEditKnowledgeForm({ ...editKnowledgeForm, content: e.target.value })}
+                    rows={8}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-cyan-500"
+                    placeholder="Enter the knowledge content..."
+                  />
+                </div>
+              </div>
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={() => {
+                    setShowEditKnowledge(false)
+                    setEditingKnowledge(null)
+                    setEditKnowledgeForm({ title: '', content: '' })
+                  }}
+                  className="flex-1 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleEditKnowledge}
+                  disabled={!editKnowledgeForm.title || !editKnowledgeForm.content}
+                  className="flex-1 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-slate-950 rounded-lg font-medium transition-colors disabled:opacity-50"
+                >
+                  Save Changes
                 </button>
               </div>
             </div>
