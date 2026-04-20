@@ -10,6 +10,143 @@ interface OrderDetails {
   pepStoreCode?: string
 }
 
+export interface BookingIntentDetails {
+  clientName?: string
+  clientPhone?: string
+  bookingDate?: string
+  startTime?: string
+  consultationType?: string
+  notes?: string
+}
+
+function normalizeBookingDate(raw: string): string | null {
+  const token = raw.trim().toLowerCase()
+  const now = new Date()
+
+  if (token === 'today') {
+    return now.toISOString().slice(0, 10)
+  }
+
+  if (token === 'tomorrow') {
+    const tomorrow = new Date(now)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    return tomorrow.toISOString().slice(0, 10)
+  }
+
+  const iso = token.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (iso) {
+    return `${iso[1]}-${iso[2]}-${iso[3]}`
+  }
+
+  const local = token.match(/^(\d{1,2})[\/-](\d{1,2})(?:[\/-](\d{2,4}))?$/)
+  if (local) {
+    const day = Number(local[1])
+    const month = Number(local[2])
+    const currentYear = now.getFullYear()
+    const year = local[3] ? Number(local[3].length === 2 ? `20${local[3]}` : local[3]) : currentYear
+
+    if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+    }
+  }
+
+  return null
+}
+
+function normalizeBookingTime(hourRaw: string, minuteRaw?: string, meridiemRaw?: string): string {
+  let hour = Number(hourRaw)
+  const minute = minuteRaw ? Number(minuteRaw) : 0
+  const meridiem = (meridiemRaw || '').toLowerCase()
+
+  if (meridiem === 'pm' && hour < 12) hour += 12
+  if (meridiem === 'am' && hour === 12) hour = 0
+
+  return `${String(Math.max(0, Math.min(23, hour))).padStart(2, '0')}:${String(Math.max(0, Math.min(59, minute))).padStart(2, '0')}`
+}
+
+export function extractBookingDetails(message: string, history: any[]): BookingIntentDetails | null {
+  const userMessages = history
+    .filter((m: any) => m.sender === 'user' || m.sender === 'contact')
+    .map((m: any) => String(m.content || ''))
+  userMessages.push(message)
+
+  const combined = userMessages.join(' ').toLowerCase()
+  const bookingIntent = /\b(book|booking|consultation|consult|appointment|schedule|slot|available|availability)\b/i.test(combined)
+  if (!bookingIntent) return null
+
+  const details: BookingIntentDetails = {}
+
+  for (const msg of userMessages) {
+    const trimmed = msg.trim()
+
+    if (!details.clientName) {
+      const nameMatch = trimmed.match(/(?:my\s+name\s+is|name\s+is|i\s+am|i'm|call\s+me)\s+([a-z]+(?:\s+[a-z]+){0,2})/i)
+      if (nameMatch?.[1]) {
+        details.clientName = nameMatch[1]
+          .split(/\s+/)
+          .filter(Boolean)
+          .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+          .join(' ')
+      }
+    }
+
+    if (!details.clientPhone) {
+      const phoneMatch = trimmed.match(/(\+?27\d{9}|0[6-8]\d{8})/)
+      if (phoneMatch?.[1]) {
+        details.clientPhone = phoneMatch[1].replace(/\s+/g, '')
+      }
+    }
+
+    if (!details.bookingDate) {
+      const dateMatch = trimmed.match(/\b(today|tomorrow|\d{4}-\d{2}-\d{2}|\d{1,2}[\/-]\d{1,2}(?:[\/-]\d{2,4})?)\b/i)
+      if (dateMatch?.[1]) {
+        const normalizedDate = normalizeBookingDate(dateMatch[1])
+        if (normalizedDate) details.bookingDate = normalizedDate
+      }
+    }
+
+    if (!details.startTime) {
+      const contextualTimeMatch = trimmed.match(/\b(?:at|for|around|time|slot)\s+([01]?\d|2[0-3])(?::([0-5]\d))?\s*(am|pm)?\b/i)
+      const amPmMatch = trimmed.match(/\b([1-9]|1[0-2])\s*(am|pm)\b/i)
+      const twentyFourHourMatch = trimmed.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/)
+
+      if (contextualTimeMatch) {
+        details.startTime = normalizeBookingTime(contextualTimeMatch[1], contextualTimeMatch[2], contextualTimeMatch[3])
+      } else if (amPmMatch) {
+        details.startTime = normalizeBookingTime(amPmMatch[1], '00', amPmMatch[2])
+      } else if (twentyFourHourMatch) {
+        details.startTime = normalizeBookingTime(twentyFourHourMatch[1], twentyFourHourMatch[2])
+      }
+    }
+
+    if (!details.consultationType) {
+      const lower = trimmed.toLowerCase()
+      if (/\b(in person|physical|at your office|face to face)\b/.test(lower)) {
+        details.consultationType = 'in_person'
+      } else if (/\b(video|online|call|zoom|whatsapp call|phone call)\b/.test(lower)) {
+        details.consultationType = 'video'
+      }
+    }
+  }
+
+  if (!details.consultationType) {
+    details.consultationType = 'video'
+  }
+
+  return Object.keys(details).length > 0 ? details : null
+}
+
+export function getMissingBookingInfo(details: BookingIntentDetails): string[] {
+  const missing: string[] = []
+
+  if (!details.clientName) missing.push('full name')
+  if (!details.clientPhone) missing.push('cellphone number')
+  if (!details.bookingDate) missing.push('preferred booking date')
+  if (!details.startTime) missing.push('preferred booking time')
+
+  return missing
+}
+
 export async function searchAgentProducts(
   query: string,
   limit: number = 10
@@ -381,10 +518,23 @@ export function extractOrderDetails(message: string, history: any[]): OrderDetai
 
   // Extract phone — South African format, scan all messages
   for (const msg of userMessages) {
-    const phoneMatch = msg.match(/(0[6-8]\d{8})/)
+    const phoneMatch = msg.match(/(\+?27\d{9}|0[6-8]\d{8})/)
     if (phoneMatch) {
-      customerPhone = phoneMatch[1]
+      customerPhone = phoneMatch[1].replace(/\s+/g, '')
       break
+    }
+  }
+
+  // Extract quantity — defaults to 1 if not specified
+  let quantity = 1
+  for (const msg of userMessages) {
+    const qtyMatch = msg.match(/\b(\d{1,2})\s*(?:x|bottle|bottles|item|items|pack|packs|piece|pieces)\b/i)
+    if (qtyMatch?.[1]) {
+      const parsed = Number(qtyMatch[1])
+      if (Number.isFinite(parsed) && parsed > 0) {
+        quantity = parsed
+        break
+      }
     }
   }
 
@@ -422,20 +572,17 @@ export function extractOrderDetails(message: string, history: any[]): OrderDetai
     }
   }
 
-  // Only return if we have ALL required details
-  if (customerName && customerPhone && deliveryLocation && productName) {
-    return {
-      productName: productName.trim(),
-      quantity: 1,
-      customerName: customerName.trim(),
-      customerPhone,
-      deliveryMethod,
-      deliveryLocation: deliveryLocation.trim(),
-      pepStoreCode
-    }
+  // Return partial extraction once purchase intent + product are found.
+  // Missing fields are handled by getMissingInfo() upstream.
+  return {
+    productName: productName.trim(),
+    quantity,
+    customerName: customerName.trim(),
+    customerPhone,
+    deliveryMethod,
+    deliveryLocation: deliveryLocation.trim(),
+    pepStoreCode
   }
-
-  return null
 }
 
 // ===== BOOKING FUNCTIONS =====

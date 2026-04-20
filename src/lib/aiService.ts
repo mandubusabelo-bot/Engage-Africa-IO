@@ -24,6 +24,9 @@ import {
   extractOrderDetails,
   getMissingInfo,
   checkBookingAvailability,
+  createBooking,
+  extractBookingDetails,
+  getMissingBookingInfo,
   checkBookingsForPhone,
   checkOrderStatus,
   searchAgentProducts,
@@ -234,15 +237,34 @@ async function injectGreetingRule(
   return { systemPrompt, greetingSent: true, sendGreetingNow: false }
 }
 
-async function injectBookingContext(systemPrompt: string, message: string): Promise<string> {
+function normalizePhoneForBooking(phone: string): string {
+  const digits = phone.replace(/@.*/, '').replace(/\D/g, '')
+  if (digits.startsWith('27') && digits.length >= 11) return digits
+  if (digits.startsWith('0') && digits.length === 10) return `27${digits.slice(1)}`
+  return digits
+}
+
+async function injectBookingContext(systemPrompt: string, message: string, phone: string, history: any[]): Promise<string> {
   const checkBookingKeywords = /\b(my booking|check booking|booking status|when is my|appointment status)\b/i
   const bookingKeywords = /\b(book|consultation|consult|appointment|schedule|available|slot|booking)\b/i
+  const bookingConfirmIntent = /\b(confirm|book now|go ahead|proceed|yes book|yes please book|ready to book|book it)\b/i.test(message)
 
   if (checkBookingKeywords.test(message)) {
-    // Customer asking about existing booking
-    // Note: phone is not available here — pass it through if needed
-    systemPrompt += `\n\n[CONTEXT] Customer is asking about an existing booking. Ask them for their reference number or phone number if you need to look it up.` 
-  } else if (bookingKeywords.test(message)) {
+    const bookingCheck = await checkBookingsForPhone(normalizePhoneForBooking(phone))
+    if (bookingCheck.success) {
+      if ((bookingCheck.count || 0) > 0) {
+        const latest = bookingCheck.bookings?.[0]
+        systemPrompt += `\n\n[BOOKING STATUS] Found ${bookingCheck.count} booking(s) for this phone.${latest ? ` Latest: ${latest.reference || latest.id} on ${latest.date} at ${latest.time}, status ${latest.booking_status}, payment ${latest.payment_status}.` : ''}`
+      } else {
+        systemPrompt += `\n\n[BOOKING STATUS] No bookings found for this phone number. Ask the customer if they want to create a new booking.`
+      }
+    } else {
+      systemPrompt += `\n\n[BOOKING STATUS CHECK FAILED] ${bookingCheck.error || 'Unknown error'}. Ask for booking reference and retry shortly.`
+    }
+    return systemPrompt
+  }
+
+  if (bookingKeywords.test(message)) {
     const availResult = await checkBookingAvailability(14)
     if (availResult.success && availResult.total_slots && availResult.total_slots > 0) {
       const slotSummary = Object.entries(availResult.availability || {})
@@ -251,14 +273,55 @@ async function injectBookingContext(systemPrompt: string, message: string): Prom
           const dateStr = new Date(date).toLocaleDateString('en-ZA', {
             weekday: 'short', day: 'numeric', month: 'short'
           })
-          return `${dateStr}: ${slots.map((s: any) => s.time).join(', ')}` 
+          return `${dateStr}: ${slots.map((s: any) => s.time).join(', ')}`
         })
         .join('\n')
-      systemPrompt += `\n\n[AVAILABLE CONSULTATION SLOTS — next 14 days, ${availResult.total_slots} total]:\n${slotSummary}\nConsultation fee: R150. To book: need name, phone, preferred date & time.` 
+      systemPrompt += `\n\n[AVAILABLE CONSULTATION SLOTS — next 14 days, ${availResult.total_slots} total]:\n${slotSummary}\nConsultation fee: R150. To book: need name, phone, preferred date & time.`
     } else {
-      systemPrompt += `\n\n[AVAILABILITY] No consultation slots available in the next 14 days. Advise the customer to contact us directly on 062 584 2441.` 
+      systemPrompt += `\n\n[AVAILABILITY] No consultation slots available in the next 14 days. Advise the customer to contact us directly on 062 584 2441.`
+      return systemPrompt
+    }
+
+    const extracted = extractBookingDetails(message, history)
+    if (!extracted) return systemPrompt
+
+    const normalizedPhone = normalizePhoneForBooking(phone)
+    const bookingDetails = {
+      clientName: extracted.clientName,
+      clientPhone: extracted.clientPhone || normalizedPhone,
+      bookingDate: extracted.bookingDate,
+      startTime: extracted.startTime,
+      consultationType: extracted.consultationType || 'video',
+      notes: extracted.notes
+    }
+
+    const missing = getMissingBookingInfo(bookingDetails)
+    if (missing.length > 0) {
+      systemPrompt += `\n\n[BOOKING DETAILS PARTIAL] Missing: ${missing.join(', ')}. Ask only for these booking fields.`
+      return systemPrompt
+    }
+
+    if (!bookingConfirmIntent) {
+      systemPrompt += `\n\n[BOOKING READY TO CREATE]\n- Name: ${bookingDetails.clientName}\n- Phone: ${bookingDetails.clientPhone}\n- Date: ${bookingDetails.bookingDate}\n- Time: ${bookingDetails.startTime}\n- Type: ${bookingDetails.consultationType}\nAsk for explicit confirmation before creating booking.`
+      return systemPrompt
+    }
+
+    const bookingResult = await createBooking({
+      clientName: bookingDetails.clientName as string,
+      clientPhone: bookingDetails.clientPhone as string,
+      bookingDate: bookingDetails.bookingDate as string,
+      startTime: bookingDetails.startTime as string,
+      consultationType: bookingDetails.consultationType,
+      notes: bookingDetails.notes
+    })
+
+    if (bookingResult.success && bookingResult.booking) {
+      systemPrompt += `\n\n[BOOKING CREATED]\n- Reference: ${bookingResult.booking.reference || bookingResult.booking.id}\n- Date: ${bookingResult.booking.date}\n- Time: ${bookingResult.booking.time}\n- Type: ${bookingResult.booking.type}\n- Amount: R${Number(bookingResult.booking.amount || 0).toFixed(2)}\nConfirm booking creation to customer and share payment steps.`
+    } else {
+      systemPrompt += `\n\n[BOOKING CREATION FAILED] ${bookingResult.error || 'Unknown error'}. Help customer adjust date/time and retry.`
     }
   }
+
   return systemPrompt
 }
 
@@ -270,10 +333,7 @@ function extractProductSearchQuery(message: string): string {
     .replace(/\s+/g, ' ')
     .trim()
 
-  if (cleaned.length >= 3) return cleaned
-
-  const fallback = message.toLowerCase().replace(/\s+/g, ' ').trim()
-  return fallback.slice(0, 60)
+  return cleaned
 }
 
 async function injectCommerceContext(
@@ -283,7 +343,7 @@ async function injectCommerceContext(
   history: any[]
 ): Promise<string> {
   const productIntent = /\b(price|stock|available|have|product|umuthi|buy|order|purchase|cost)\b/i.test(message)
-  const confirmIntent = /\b(confirm|place order|go ahead|proceed|yes order|yes please order|ready to order)\b/i.test(message)
+  const confirmIntent = /\b(confirm|place order|go ahead|proceed|yes order|yes please order|ready to order|order now|place it|do it|yes proceed|yes go ahead)\b/i.test(message)
 
   if (productIntent) {
     const query = extractProductSearchQuery(message)
@@ -294,7 +354,7 @@ async function injectCommerceContext(
         .map((p: any) => `- ${p.name}: R${Number(p.price || 0).toFixed(2)} (stock: ${p.stock_quantity ?? 'unknown'})`)
         .join('\n')
 
-      systemPrompt += `\n\n[LIVE PRODUCT STOCK for query "${query}"]:\n${stockLines}\nOnly promise products with stock > 0 (or unknown stock). If exact product is unavailable, suggest closest in-stock alternatives.`
+      systemPrompt += `\n\n[LIVE PRODUCT STOCK for query "${query || '(all products)'}"]:\n${stockLines}\nOnly promise products with stock > 0 (or unknown stock). If exact product is unavailable, suggest closest in-stock alternatives.`
     } else if (search.error) {
       systemPrompt += `\n\n[PRODUCT LOOKUP ERROR] ${search.error}. Ask the customer to retry shortly or specify the exact product name.`
     }
@@ -642,7 +702,7 @@ export async function handleIncomingWhatsApp(
     const history = (recentMessages || []).reverse()
 
     // ── 8. Inject contextual data (bookings, orders, commerce, action results) ──────────
-    systemPrompt = await injectBookingContext(systemPrompt, message)
+    systemPrompt = await injectBookingContext(systemPrompt, message, phone, history)
     systemPrompt = await injectOrderContext(systemPrompt, message, phone)
     systemPrompt = await injectCommerceContext(systemPrompt, message, phone, history)
 

@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import {
   createOrderFromConversation,
+  createBooking,
+  extractBookingDetails,
   extractOrderDetails,
+  getMissingBookingInfo,
   getMissingInfo,
   searchAgentProducts
 } from '@/lib/orderService'
@@ -19,7 +22,8 @@ export async function POST(request: NextRequest) {
       sampleMessage,
       samplePhone,
       sampleHistory,
-      simulateOrderCreate
+      simulateOrderCreate,
+      simulateBookingCreate
     } = await request.json()
     const siteUrl = targetUrl || process.env.NEXT_SITE_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://intandokaziherbal.co.za'
     const apiSecret = process.env.AGENT_API_SECRET
@@ -102,6 +106,51 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const bookingIntent = /\b(book|consultation|consult|appointment|schedule|available|slot|booking)\b/i.test(testMessage)
+    const bookingConfirmIntent = /\b(confirm|book now|go ahead|proceed|yes book|yes please book|ready to book|book it)\b/i.test(testMessage)
+    log(bookingIntent ? 'success' : 'warn', `Booking intent ${bookingIntent ? 'detected' : 'NOT detected'}`)
+    log(bookingConfirmIntent ? 'success' : 'warn', `Booking confirmation intent ${bookingConfirmIntent ? 'detected' : 'NOT detected'}`)
+
+    const extractedBooking = extractBookingDetails(testMessage, history)
+    if (!extractedBooking) {
+      log('warn', 'Booking detail extraction did NOT fire (no usable booking details found)')
+    } else {
+      const bookingMissing = getMissingBookingInfo(extractedBooking)
+      log('success', `Booking details extracted: name=${extractedBooking.clientName || 'n/a'}, phone=${extractedBooking.clientPhone || 'n/a'}, date=${extractedBooking.bookingDate || 'n/a'}, time=${extractedBooking.startTime || 'n/a'}, type=${extractedBooking.consultationType || 'video'}`)
+
+      if (bookingMissing.length > 0) {
+        log('warn', `Booking flow blocked by missing fields: ${bookingMissing.join(', ')}`)
+      } else {
+        log('success', 'All required booking fields are present')
+      }
+
+      if (simulateBookingCreate === true) {
+        if (bookingMissing.length > 0) {
+          log('warn', 'Skipping live booking creation (missing required fields)')
+        } else if (!bookingConfirmIntent) {
+          log('warn', 'Skipping live booking creation (confirmation trigger not detected)')
+        } else {
+          log('info', 'Attempting LIVE booking creation test...')
+          const bookingResult = await createBooking({
+            clientName: extractedBooking.clientName as string,
+            clientPhone: extractedBooking.clientPhone || testPhone,
+            bookingDate: extractedBooking.bookingDate as string,
+            startTime: extractedBooking.startTime as string,
+            consultationType: extractedBooking.consultationType || 'video',
+            notes: extractedBooking.notes
+          })
+
+          if (bookingResult.success && bookingResult.booking) {
+            log('success', `Live booking created: ${bookingResult.booking.reference || bookingResult.booking.id}`)
+          } else {
+            log('error', `Live booking creation failed: ${bookingResult.error || 'Unknown error'}`)
+          }
+        }
+      } else {
+        log('info', 'Live booking creation not executed (set simulateBookingCreate=true to test full booking placement)')
+      }
+    }
+
     // Test 2: Store page
     log('info', '--- Test 2: Store page ---')
     try {
@@ -122,39 +171,57 @@ export async function POST(request: NextRequest) {
     } else {
       try {
         const baseUrl = siteUrl.replace(/\/$/, '')
-        const searchUrl = `${baseUrl}/api/agent/products/search?q=umuthi`
-        log('info', `GET ${searchUrl}`)
+        const probes = [
+          { label: 'specific', query: 'umuthi' },
+          { label: 'fallback', query: '' }
+        ]
 
-        const startMs = Date.now()
-        const res = await fetch(searchUrl, {
-          headers: {
-            'x-agent-secret': apiSecret,
-            'Content-Type': 'application/json'
-          }
-        })
-        const elapsed = Date.now() - startMs
+        let fallbackProductCount = 0
 
-        log('info', `Response: ${res.status} (${elapsed}ms)`)
+        for (const probe of probes) {
+          const searchUrl = `${baseUrl}/api/agent/products/search?q=${encodeURIComponent(probe.query)}`
+          log('info', `GET ${searchUrl}`)
 
-        const contentType = res.headers.get('content-type') || ''
-        if (contentType.includes('application/json')) {
-          const data = await res.json().catch(() => null)
-          if (data) {
-            log('info', `Response body: ${JSON.stringify(data).slice(0, 800)}`)
-            if (data.success && data.products?.length > 0) {
-              log('success', `Found ${data.products.length} products matching "umuthi"`)
-              data.products.slice(0, 3).forEach((p: any, i: number) => {
-                log('info', `  Product ${i + 1}: ${p.name} — R${p.price}`)
-              })
-            } else if (data.success) {
-              log('warn', 'API returned success but no products found for "umuthi"')
-            } else {
-              log('error', `API error: ${data.error || 'Unknown'}`)
+          const startMs = Date.now()
+          const res = await fetch(searchUrl, {
+            headers: {
+              'x-agent-secret': apiSecret,
+              'Content-Type': 'application/json'
             }
+          })
+          const elapsed = Date.now() - startMs
+
+          log('info', `Response (${probe.label}): ${res.status} (${elapsed}ms)`)
+
+          const contentType = res.headers.get('content-type') || ''
+          if (contentType.includes('application/json')) {
+            const data = await res.json().catch(() => null)
+            if (data) {
+              log('info', `Response body (${probe.label}): ${JSON.stringify(data).slice(0, 800)}`)
+              const count = Number(data.products?.length || 0)
+              if (probe.label === 'fallback') fallbackProductCount = count
+
+              if (data.success && count > 0) {
+                log('success', `Found ${count} products for ${probe.label} query "${probe.query || '(empty)'}"`)
+                data.products.slice(0, 3).forEach((p: any, i: number) => {
+                  log('info', `  Product ${i + 1}: ${p.name} — R${p.price}`)
+                })
+              } else if (data.success) {
+                log(probe.label === 'specific' ? 'info' : 'warn', `${probe.label} query returned no products`)
+              } else {
+                log('error', `API error (${probe.label}): ${data.error || 'Unknown'}`)
+              }
+            }
+          } else {
+            const text = await res.text().catch(() => '')
+            log('error', `Unexpected response type (${probe.label}, ${contentType}): ${text.slice(0, 300)}`)
           }
+        }
+
+        if (fallbackProductCount > 0) {
+          log('success', 'Catalog fallback query is working for generic stock questions')
         } else {
-          const text = await res.text().catch(() => '')
-          log('error', `Unexpected response type (${contentType}): ${text.slice(0, 300)}`)
+          log('warn', 'Catalog fallback query returned no products (check active products in website DB)')
         }
       } catch (err: any) {
         log('error', `Product API error: ${err.message}`)
@@ -275,6 +342,14 @@ export async function POST(request: NextRequest) {
         log('error', `Order status API error: ${err.message}`)
       }
     }
+
+    log('info', '--- Readiness Summary ---')
+    const hasProductReady = logs.some((l) => l.msg.includes('Catalog fallback query is working'))
+    const hasBookingReady = logs.some((l) => l.msg.includes('All required booking fields are present') || l.msg.includes('Live booking created'))
+    const hasOrderReady = logs.some((l) => l.msg.includes('All required order fields are present') || l.msg.includes('Live order created'))
+    log(hasProductReady ? 'success' : 'warn', `Product lookup readiness: ${hasProductReady ? 'ready' : 'partial'}`)
+    log(hasBookingReady ? 'success' : 'warn', `Booking-from-chat readiness: ${hasBookingReady ? 'ready' : 'partial (needs more booking details in prompt)'}`)
+    log(hasOrderReady ? 'success' : 'warn', `Purchase-from-chat readiness: ${hasOrderReady ? 'ready' : 'partial (needs more order details in prompt)'}`)
 
     const allSuccess = logs.every(l => l.level !== 'error')
     log(allSuccess ? 'success' : 'warn', `Site connectivity test complete — ${allSuccess ? 'ALL PASSED' : 'SOME FAILURES'}`)
