@@ -117,6 +117,8 @@ export async function POST(
       productIntentPattern.test(message) ||
       (listFollowUpPattern.test(message) && productIntentPattern.test(recentUserText))
 
+    let productFallbackList = ''
+
     if (needsProductContext) {
       const query = extractProductSearchQuery(message)
       const liveProducts = await searchAgentProducts(query, query ? 8 : 15)
@@ -125,6 +127,8 @@ export async function POST(
           .slice(0, 12)
           .map((p: any) => `- ${p.name}: R${Number(p.price || 0).toFixed(2)} (stock: ${p.stock_quantity ?? 'unknown'})`)
           .join('\n')
+
+        productFallbackList = productLines
 
         enhancedSystemPrompt += `\n\n[LIVE PRODUCT CATALOG for query "${query || '(all products)'}"]:\n${productLines}\nWhen user asks to list products, provide a concise list from this live data first before suggesting website browsing.`
       } else if (liveProducts.success) {
@@ -139,9 +143,12 @@ export async function POST(
     const recentCommerceContext = [recentUserText, messageHistory.map((m: any) => String(m?.content || '')).slice(-3).join(' ')].join(' ').toLowerCase()
     const hasRecentCommerceSignals = /\b(product|products|stock|price|order|payment|eft|bank|pep|mall|delivery|shop)\b/.test(recentCommerceContext)
     const orderFollowUpPattern = /\b(order|buy|purchase|checkout|place it|place one)\b/i
+    const orderIntentActive = orderIntentPattern.test(message) || (orderFollowUpPattern.test(message) && hasRecentCommerceSignals)
+    let extractedOrderForFallback: ReturnType<typeof extractOrderDetails> = null
 
-    if (orderIntentPattern.test(message) || (orderFollowUpPattern.test(message) && hasRecentCommerceSignals)) {
+    if (orderIntentActive) {
       const extractedOrder = extractOrderDetails(message, messageHistory)
+      extractedOrderForFallback = extractedOrder
 
       if (!extractedOrder) {
         enhancedSystemPrompt += '\n\n[ORDER INTENT DETECTED] The customer wants to place an order but key details are missing. Ask for the product first, then collect full name, cellphone number, and collection location (PEP store or mall). Do not use fallback for this.'
@@ -226,9 +233,29 @@ export async function POST(
       }
     }
 
-    // Fallback response if AI fails
-    if (!aiResponse) {
-      aiResponse = `Hello! I'm ${agent.name}. I received your message: "${message}". How can I help you today?`
+    // Fallback response if AI fails — commerce-aware deterministic replies
+    if (!aiResponse || !aiResponse.trim()) {
+      console.log('[AgentChat] AI returned empty — using deterministic fallback', { orderIntentActive, needsProductContext, isShortOpener })
+      if (orderIntentActive) {
+        if (!extractedOrderForFallback) {
+          aiResponse = 'Absolutely — I can place the order for you. Which product would you like, and how many bottles/items should I place?'
+        } else {
+          const missingOrderFields = getMissingInfo(extractedOrderForFallback)
+          if (missingOrderFields.length > 0) {
+            aiResponse = `Perfect. I can continue your order for ${extractedOrderForFallback.productName}. Please share your ${missingOrderFields[0]} first.`
+          } else {
+            aiResponse = `I have everything needed for ${extractedOrderForFallback.quantity || 1} x ${extractedOrderForFallback.productName}, for ${extractedOrderForFallback.customerName}, ${extractedOrderForFallback.customerPhone}, delivery to ${extractedOrderForFallback.deliveryLocation}. Please reply "confirm" and I will place it.`
+          }
+        }
+      } else if (needsProductContext && productFallbackList) {
+        aiResponse = `Here are the products currently available:\n${productFallbackList}\nTell me which one you want and I can help you place the order.`
+      } else if (needsProductContext) {
+        aiResponse = 'I can help with products. Tell me the concern you want to treat (or your budget), and I will recommend options.'
+      } else if (isShortOpener) {
+        aiResponse = 'Hi there! How can I help you today?'
+      } else {
+        aiResponse = `Hello! I'm ${agent.name}. I received your message: "${message}". How can I help you today?`
+      }
     }
 
     // Save AI response to database
