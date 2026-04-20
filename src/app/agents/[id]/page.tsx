@@ -81,6 +81,8 @@ export default function AgentDetail() {
   const [testActionPhone, setTestActionPhone] = useState('27600000000')
   const [siteTestLogs, setSiteTestLogs] = useState<Array<{ ts: string; level: string; msg: string }>>([])
   const [siteTestRunning, setSiteTestRunning] = useState(false)
+  const [simulateOrderCreate, setSimulateOrderCreate] = useState(false)
+  const [simulateBookingCreate, setSimulateBookingCreate] = useState(false)
   
   // Track in-flight action updates to prevent duplicates
   const pendingActionUpdates = useRef<Map<string, Promise<any>>>(new Map())
@@ -2226,6 +2228,27 @@ export default function AgentDetail() {
                     placeholder="27600000000"
                   />
                 </div>
+                <div className="rounded-lg border border-slate-700 bg-slate-900/60 p-3 space-y-2">
+                  <p className="text-xs font-medium text-slate-300">Live Simulation Options</p>
+                  <label className="flex items-start gap-2 text-xs text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={simulateOrderCreate}
+                      onChange={(e) => setSimulateOrderCreate(e.target.checked)}
+                      className="mt-0.5 h-3.5 w-3.5 rounded border-slate-600 bg-slate-800 text-cyan-500 focus:ring-cyan-500"
+                    />
+                    <span>Create real order in site test (requires full details + confirmation phrase)</span>
+                  </label>
+                  <label className="flex items-start gap-2 text-xs text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={simulateBookingCreate}
+                      onChange={(e) => setSimulateBookingCreate(e.target.checked)}
+                      className="mt-0.5 h-3.5 w-3.5 rounded border-slate-600 bg-slate-800 text-cyan-500 focus:ring-cyan-500"
+                    />
+                    <span>Create real booking in site test (requires full details + booking confirmation phrase)</span>
+                  </label>
+                </div>
                 <div className="flex gap-2">
                   <button
                     onClick={async () => {
@@ -2267,7 +2290,8 @@ export default function AgentDetail() {
                           body: JSON.stringify({
                             sampleMessage: testActionMessage,
                             samplePhone: testActionPhone,
-                            simulateOrderCreate: false
+                            simulateOrderCreate,
+                            simulateBookingCreate
                           })
                         })
                         const data = await res.json()
