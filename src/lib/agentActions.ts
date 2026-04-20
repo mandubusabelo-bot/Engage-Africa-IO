@@ -84,6 +84,12 @@ async function executeHttpLikeAction(action: AgentActionRecord, message: string,
     ...(mergedConfig.headers || {})
   }
 
+  const headerKeys = Object.keys(headers).map((k) => k.toLowerCase())
+  const needsAgentSecretHeader = url.toLowerCase().includes('/api/agent/')
+  if (needsAgentSecretHeader && !headerKeys.includes('x-agent-secret') && process.env.AGENT_API_SECRET) {
+    headers['x-agent-secret'] = process.env.AGENT_API_SECRET
+  }
+
   const bodyPayload = mergedConfig.body
     ? interpolateTemplate(JSON.stringify(mergedConfig.body), { message, phone, query: message })
     : JSON.stringify({ message, phone })

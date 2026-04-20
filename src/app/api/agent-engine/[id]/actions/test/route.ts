@@ -88,6 +88,21 @@ export async function POST(
         ...(mergedConfig.headers || {})
       }
 
+      const headerKeys = Object.keys(headers).map((k) => k.toLowerCase())
+      const needsAgentSecretHeader = url.toLowerCase().includes('/api/agent/')
+      const autoAppliedAgentSecret = needsAgentSecretHeader && !headerKeys.includes('x-agent-secret') && Boolean(process.env.AGENT_API_SECRET)
+      if (autoAppliedAgentSecret) {
+        headers['x-agent-secret'] = process.env.AGENT_API_SECRET as string
+      }
+
+      if (needsAgentSecretHeader) {
+        if (headers['x-agent-secret']) {
+          log(autoAppliedAgentSecret ? 'success' : 'info', autoAppliedAgentSecret ? 'Auto-applied x-agent-secret header for agent API request' : 'Using configured x-agent-secret header')
+        } else {
+          log('warn', 'Agent API endpoint detected but x-agent-secret is missing (request may fail with 401)')
+        }
+      }
+
       const bodyPayload = mergedConfig.body
         ? interpolate(JSON.stringify(mergedConfig.body), { message, phone, query: message })
         : JSON.stringify({ message, phone })
