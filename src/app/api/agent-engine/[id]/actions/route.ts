@@ -2,12 +2,29 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-server'
 
 // GET /api/agent-engine/[id]/actions - Get all actions for an agent
+const DEFAULT_ACTION_TYPES = [
+  'close_conversation',
+  'assign_to_agent',
+  'assign_to_human',
+  'update_lifecycle',
+  'update_contact_field',
+  'update_tags',
+  'trigger_workflow',
+  'notify_dispatch',
+  'product_lookup',
+  'create_booking',
+  'webhook_call',
+  'add_comment',
+  'handle_call',
+  'http_request'
+]
+
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    const { data: actions, error } = await supabaseAdmin
+    const { data: dbActions, error } = await supabaseAdmin
       .from('agent_actions')
       .select('*')
       .eq('agent_id', params.id)
@@ -15,7 +32,27 @@ export async function GET(
 
     if (error) throw error
 
-    return NextResponse.json({ success: true, data: actions || [] })
+    // Merge DB actions with defaults - ensure all types exist
+    const dbActionTypes = new Set((dbActions || []).map((a: any) => a.action_type))
+    const allActions = [...(dbActions || [])]
+
+    // Add missing default actions
+    for (const type of DEFAULT_ACTION_TYPES) {
+      if (!dbActionTypes.has(type)) {
+        allActions.push({
+          id: `default_${type}`,
+          agent_id: params.id,
+          action_type: type,
+          is_enabled: false,
+          trigger_condition: '',
+          instruction: '',
+          priority: 'medium',
+          config: {}
+        })
+      }
+    }
+
+    return NextResponse.json({ success: true, data: allActions })
   } catch (error: any) {
     console.error('Get agent actions error:', error)
     return NextResponse.json({ success: false, error: error.message }, { status: 500 })
