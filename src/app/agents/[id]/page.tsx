@@ -372,7 +372,11 @@ export default function AgentDetail() {
     }
   }
 
-  const handleUpdateAction = async (actionId: string, updates: Partial<AgentAction>) => {
+  const handleUpdateAction = async (
+    actionId: string,
+    updates: Partial<AgentAction>,
+    options?: { silent?: boolean }
+  ) => {
     // Check if we already have a real DB ID for this default action
     const realId = actionIdMap.current.get(actionId)
     const effectiveId = realId || actionId
@@ -386,7 +390,6 @@ export default function AgentDetail() {
     const pendingKey = effectiveId
     const existingPromise = pendingActionUpdates.current.get(pendingKey)
     if (existingPromise) {
-      console.log(`[Action Update] Waiting for pending update for ${effectiveId}`)
       try {
         await existingPromise
       } catch (e) {
@@ -397,7 +400,6 @@ export default function AgentDetail() {
     // Create the update promise
     const updatePromise = (async () => {
       try {
-        console.log(`[Action Update] ${isDefaultAction ? 'Creating' : 'Updating'} action ${effectiveId}`, updates)
         const response = await fetch(`/api/agent-engine/${agentId}/actions/${effectiveId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -408,7 +410,6 @@ export default function AgentDetail() {
         
         // If this was a default action that was just created, update the ID mapping
         if (isDefaultAction && result.data?.id && result.data.id !== actionId) {
-          console.log(`[Action Update] Mapping ${actionId} -> ${result.data.id}`)
           actionIdMap.current.set(actionId, result.data.id)
           setActions(current => current.map(a => 
             a.id === actionId ? { ...a, ...result.data } : a
@@ -430,19 +431,42 @@ export default function AgentDetail() {
     
     try {
       await updatePromise
-      showToast('Action updated', 'success')
+      if (!options?.silent) {
+        showToast('Action updated', 'success')
+      }
     } catch (e) {
       // Error already handled
     }
   }
 
-  const handleUpdateActionConfig = async (actionId: string, configUpdates: Record<string, any>) => {
+  const updateLocalAction = (actionId: string, updates: Partial<AgentAction>) => {
+    setActions(current => current.map(a => a.id === actionId ? { ...a, ...updates } : a))
+  }
+
+  const updateLocalActionConfig = (actionId: string, configUpdates: Record<string, any>) => {
+    setActions(current => current.map(a => {
+      if (a.id !== actionId) return a
+      return {
+        ...a,
+        config: {
+          ...(a.config || {}),
+          ...configUpdates
+        }
+      }
+    }))
+  }
+
+  const handleUpdateActionConfig = async (
+    actionId: string,
+    configUpdates: Record<string, any>,
+    options?: { silent?: boolean }
+  ) => {
     const currentAction = actions.find(a => a.id === actionId)
     const mergedConfig = {
       ...(currentAction?.config || {}),
       ...configUpdates
     }
-    await handleUpdateAction(actionId, { config: mergedConfig })
+    await handleUpdateAction(actionId, { config: mergedConfig }, options)
   }
 
   const handleUpdateKbSettings = async (kbId: string, settings: Partial<KnowledgeItem>) => {
@@ -1007,7 +1031,8 @@ export default function AgentDetail() {
                               <input
                                 type="text"
                                 value={action.trigger_condition}
-                                onChange={(e) => handleUpdateAction(action.id, { trigger_condition: e.target.value })}
+                                onChange={(e) => updateLocalAction(action.id, { trigger_condition: e.target.value })}
+                                onBlur={() => handleUpdateAction(action.id, { trigger_condition: action.trigger_condition }, { silent: true })}
                                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"
                                 placeholder="When to trigger this action (e.g., user says 'close my ticket')"
                               />
@@ -1018,7 +1043,8 @@ export default function AgentDetail() {
                               </label>
                               <textarea
                                 value={action.instruction}
-                                onChange={(e) => handleUpdateAction(action.id, { instruction: e.target.value })}
+                                onChange={(e) => updateLocalAction(action.id, { instruction: e.target.value })}
+                                onBlur={() => handleUpdateAction(action.id, { instruction: action.instruction }, { silent: true })}
                                 rows={2}
                                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"
                                 placeholder="What the agent should do when triggered"
@@ -1034,7 +1060,8 @@ export default function AgentDetail() {
                                   <input
                                     type="text"
                                     value={action.config?.url || ''}
-                                    onChange={(e) => handleUpdateActionConfig(action.id, { url: e.target.value })}
+                                    onChange={(e) => updateLocalActionConfig(action.id, { url: e.target.value })}
+                                    onBlur={() => handleUpdateActionConfig(action.id, { url: action.config?.url || '' }, { silent: true })}
                                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"
                                     placeholder="https://api.example.com/endpoint"
                                   />
@@ -1065,7 +1092,8 @@ export default function AgentDetail() {
                                 </label>
                                 <textarea
                                   value={action.config?.messageTemplate || ''}
-                                  onChange={(e) => handleUpdateActionConfig(action.id, { messageTemplate: e.target.value })}
+                                  onChange={(e) => updateLocalActionConfig(action.id, { messageTemplate: e.target.value })}
+                                  onBlur={() => handleUpdateActionConfig(action.id, { messageTemplate: action.config?.messageTemplate || '' }, { silent: true })}
                                   rows={2}
                                   className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"
                                   placeholder="Dispatch alert for {{phone}}: {{message}}"
@@ -1082,7 +1110,8 @@ export default function AgentDetail() {
                                   <input
                                     type="text"
                                     value={action.config?.humanAgentPhone || ''}
-                                    onChange={(e) => handleUpdateActionConfig(action.id, { humanAgentPhone: e.target.value })}
+                                    onChange={(e) => updateLocalActionConfig(action.id, { humanAgentPhone: e.target.value })}
+                                    onBlur={() => handleUpdateActionConfig(action.id, { humanAgentPhone: action.config?.humanAgentPhone || '' }, { silent: true })}
                                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"
                                     placeholder="e.g., 27672239798"
                                   />
@@ -1097,7 +1126,8 @@ export default function AgentDetail() {
                                   <input
                                     type="text"
                                     value={action.config?.reason || ''}
-                                    onChange={(e) => handleUpdateActionConfig(action.id, { reason: e.target.value })}
+                                    onChange={(e) => updateLocalActionConfig(action.id, { reason: e.target.value })}
+                                    onBlur={() => handleUpdateActionConfig(action.id, { reason: action.config?.reason || '' }, { silent: true })}
                                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"
                                     placeholder="e.g., Customer complaint, Product inquiry"
                                   />

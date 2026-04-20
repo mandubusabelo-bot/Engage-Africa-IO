@@ -43,6 +43,7 @@ function shouldTrigger(action: AgentActionRecord, message: string) {
   if (!action.is_enabled) return false
   const condition = (action.trigger_condition || '').trim().toLowerCase()
   if (!condition) return true
+  if (condition === '*') return true
   return message.toLowerCase().includes(condition)
 }
 
@@ -183,7 +184,12 @@ export async function runAgentActions(params: {
           'escalation.reason': mergedConfig.reason || 'Customer needs human assistance',
           'escalation.lastMessage': message,
           'conversation.id': conversation.id
-        }, { role: 'human_agent', conversationId: conversation.id, contactId: contact.id })
+        }, {
+          role: 'human_agent',
+          recipients: [String(humanAgentPhone)],
+          conversationId: conversation.id,
+          contactId: contact.id
+        })
 
         // Add internal note
         await notify('escalation_internal_note', {

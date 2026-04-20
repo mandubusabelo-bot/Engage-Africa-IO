@@ -38,7 +38,7 @@ export async function POST(
     const condition = (action.trigger_condition || '').trim().toLowerCase()
     const message = (sampleMessage || 'I want to buy umuthi wenhlanhla').toLowerCase()
 
-    if (condition && !message.includes(condition)) {
+    if (condition && condition !== '*' && !message.includes(condition)) {
       log('warn', `Trigger condition "${condition}" NOT matched in sample message`)
       log('warn', 'Action would NOT fire for this message')
       return NextResponse.json({ success: true, triggered: false, logs })
@@ -117,9 +117,9 @@ export async function POST(
     }
 
     if (action.action_type === 'assign_to_human') {
-      const humanAgentId = mergedConfig.humanAgentId
-      if (!humanAgentId) {
-        log('error', 'Missing humanAgentId in config')
+      const humanAgentPhone = mergedConfig.humanAgentPhone || mergedConfig.humanAgentId
+      if (!humanAgentPhone) {
+        log('error', 'Missing humanAgentPhone in config')
         return NextResponse.json({ success: false, logs })
       }
 
@@ -191,7 +191,12 @@ export async function POST(
           'escalation.reason': mergedConfig.reason || 'Test handover from agent action',
           'escalation.lastMessage': message,
           'conversation.id': conversationId || 'test'
-        }, { role: 'human_agent', conversationId, contactId: contact?.id })
+        }, {
+          role: 'human_agent',
+          recipients: [String(humanAgentPhone)],
+          conversationId,
+          contactId: contact?.id
+        })
 
         log('success', `WhatsApp notification sent to human agent`)
 
@@ -207,7 +212,7 @@ export async function POST(
         log('error', `Failed to send WhatsApp: ${notifyErr.message}`)
       }
 
-      log('success', `Test complete: Conversation assigned to human agent ${humanAgentId}`)
+      log('success', `Test complete: Conversation assigned to human agent ${humanAgentPhone}`)
       return NextResponse.json({ success: true, triggered: true, logs })
     }
 

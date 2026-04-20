@@ -9,6 +9,7 @@ export async function notify(
   variables: Record<string, string | undefined>,
   options?: {
     role?: 'dispatch' | 'human_agent' | 'disputes'
+    recipients?: string[]
     conversationId?: string
     contactId?: string
     orderId?: string
@@ -23,12 +24,24 @@ export async function notify(
 
   const message = renderTemplate(prompt.template, variables)
 
-  if (prompt.channel === 'whatsapp' && options?.role) {
-    const numbers = await getStaffNumbers(options.role)
+  if (prompt.channel === 'whatsapp') {
+    const numbers = options?.recipients?.length
+      ? options.recipients
+      : (options?.role ? await getStaffNumbers(options.role) : [])
+
+    const normalizedNumbers = numbers
+      .map(normalizePhone)
+      .filter((n): n is string => Boolean(n))
+
+    if (!normalizedNumbers.length) {
+      console.warn(`No recipients available for trigger: ${triggerKey}`)
+      return
+    }
+
     const results = await Promise.allSettled(
-      numbers.map(n => sendWhatsApp(n, message))
+      normalizedNumbers.map(n => sendWhatsApp(n, message))
     )
-    await logNotifications(triggerKey, options.role, numbers, message, options, results)
+    await logNotifications(triggerKey, options?.role || 'direct', normalizedNumbers, message, options, results)
     return
   }
 
@@ -41,6 +54,15 @@ export async function notify(
     await addInternalNote(options.conversationId, message)
     return
   }
+}
+
+function normalizePhone(raw?: string) {
+  if (!raw) return null
+  const digits = String(raw).replace(/\D/g, '')
+  if (!digits) return null
+  if (digits.startsWith('27')) return digits
+  if (digits.startsWith('0')) return `27${digits.slice(1)}`
+  return digits
 }
 
 async function logNotifications(
