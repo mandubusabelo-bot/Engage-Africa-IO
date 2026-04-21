@@ -355,7 +355,7 @@ export async function createOrderFromConversation(
         'Content-Type': 'application/json',
         'x-agent-secret': apiSecret
       },
-      body: payloadJson
+      body: new Blob([payloadJson], { type: 'application/json' })
     })
 
     const orderData = await orderResponse.json()
@@ -698,7 +698,7 @@ export async function createBooking(details: {
         'Content-Type': 'application/json',
         'x-agent-secret': apiSecret
       },
-      body: bookingPayload
+      body: new Blob([bookingPayload], { type: 'application/json' })
     })
 
     const data = await res.json()
