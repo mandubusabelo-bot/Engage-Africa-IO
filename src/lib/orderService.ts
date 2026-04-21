@@ -349,16 +349,13 @@ export async function createOrderFromConversation(
     console.log(`[Order Service] POSTing to ${orderUrl}`)
     console.log(`[Order Service] Payload: ${payloadJson.slice(0, 200)}...`)
 
-    const payloadBuffer = Buffer.from(payloadJson, 'utf-8')
-
     const orderResponse = await fetch(orderUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Content-Length': String(payloadBuffer.byteLength),
         'x-agent-secret': apiSecret
       },
-      body: payloadBuffer
+      body: payloadJson
     })
 
     const orderData = await orderResponse.json()
@@ -683,7 +680,7 @@ export async function createBooking(details: {
       return { success: false, error: 'Missing AGENT_API_SECRET' }
     }
 
-    const bookingPayload = Buffer.from(JSON.stringify({
+    const bookingPayload = JSON.stringify({
       client_name: details.clientName,
       client_phone: details.clientPhone,
       client_email: details.clientEmail,
@@ -693,13 +690,12 @@ export async function createBooking(details: {
       end_time: details.endTime,
       consultation_type: details.consultationType || 'video',
       slot_id: details.slotId
-    }), 'utf-8')
+    })
 
     const res = await fetch(`${siteUrl}/api/agent/bookings`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Content-Length': String(bookingPayload.byteLength),
         'x-agent-secret': apiSecret
       },
       body: bookingPayload

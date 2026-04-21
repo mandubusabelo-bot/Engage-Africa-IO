@@ -198,6 +198,7 @@ export async function POST(
     
     // Try OpenRouter first
     const openrouterKey = process.env.OPENROUTER_API_KEY
+    const openrouterMaxTokens = Number(process.env.OPENROUTER_MAX_TOKENS || '900')
     if (openrouterKey) {
       try {
         const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -209,7 +210,9 @@ export async function POST(
           },
           body: JSON.stringify({
             model: process.env.OPENROUTER_MODEL || 'google/gemini-2.0-flash-exp:free',
-            messages: messages
+            messages: messages,
+            max_tokens: Number.isFinite(openrouterMaxTokens) && openrouterMaxTokens > 0 ? openrouterMaxTokens : 900,
+            temperature: 0.5
           })
         })
 
