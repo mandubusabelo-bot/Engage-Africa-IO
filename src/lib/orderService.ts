@@ -1,4 +1,37 @@
 import { supabaseAdmin } from './supabase-server'
+import https from 'https'
+import http from 'http'
+
+function postJson(url: string, payload: object, headers: Record<string, string>): Promise<{ status: number; body: any }> {
+  return new Promise((resolve, reject) => {
+    const json = JSON.stringify(payload)
+    const buf = Buffer.from(json, 'utf-8')
+    const parsed = new URL(url)
+    const isHttps = parsed.protocol === 'https:'
+    const options = {
+      hostname: parsed.hostname,
+      port: parsed.port || (isHttps ? 443 : 80),
+      path: parsed.pathname + parsed.search,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': buf.byteLength,
+        ...headers
+      }
+    }
+    const req = (isHttps ? https : http).request(options, (res) => {
+      let data = ''
+      res.on('data', (chunk) => { data += chunk })
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode || 0, body: JSON.parse(data) }) }
+        catch { resolve({ status: res.statusCode || 0, body: data }) }
+      })
+    })
+    req.on('error', reject)
+    req.write(buf)
+    req.end()
+  })
+}
 
 interface OrderDetails {
   productName: string
@@ -349,21 +382,13 @@ export async function createOrderFromConversation(
     console.log(`[Order Service] POSTing to ${orderUrl}`)
     console.log(`[Order Service] Payload: ${payloadJson.slice(0, 200)}...`)
 
-    const orderResponse = await fetch(orderUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-agent-secret': apiSecret
-      },
-      body: new Blob([payloadJson], { type: 'application/json' })
-    })
+    const orderRes = await postJson(orderUrl, orderPayload, { 'x-agent-secret': apiSecret })
+    const orderData = orderRes.body
 
-    const orderData = await orderResponse.json()
-
-    if (!orderResponse.ok || !orderData.success) {
-      return { 
-        success: false, 
-        error: orderData.error || 'Failed to create order' 
+    if (orderRes.status < 200 || orderRes.status >= 300 || !orderData.success) {
+      return {
+        success: false,
+        error: orderData.error || `Failed to create order (HTTP ${orderRes.status})`
       }
     }
 
@@ -692,19 +717,11 @@ export async function createBooking(details: {
       slot_id: details.slotId
     })
 
-    const res = await fetch(`${siteUrl}/api/agent/bookings`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-agent-secret': apiSecret
-      },
-      body: new Blob([bookingPayload], { type: 'application/json' })
-    })
+    const bookingRes = await postJson(`${siteUrl}/api/agent/bookings`, JSON.parse(bookingPayload), { 'x-agent-secret': apiSecret })
+    const data = bookingRes.body
 
-    const data = await res.json()
-
-    if (!res.ok || !data.success) {
-      return { success: false, error: data.error || 'Failed to create booking' }
+    if (bookingRes.status < 200 || bookingRes.status >= 300 || !data.success) {
+      return { success: false, error: data.error || `Failed to create booking (HTTP ${bookingRes.status})` }
     }
 
     return { success: true, booking: data.booking }
