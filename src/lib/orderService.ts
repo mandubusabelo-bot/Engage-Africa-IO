@@ -410,11 +410,17 @@ export async function createOrderFromConversation(
     const orderUrl = `${siteUrl}/api/agent/orders/prepare`
     const payloadJson = JSON.stringify(orderPayload)
 
+    console.log(`[Order Service] NEXT_SITE_URL=${process.env.NEXT_SITE_URL}`)
+    console.log(`[Order Service] INTANDOKAZI_SITE_URL=${process.env.INTANDOKAZI_SITE_URL}`)
+    console.log(`[Order Service] Resolved siteUrl=${siteUrl}`)
     console.log(`[Order Service] POSTing to ${orderUrl}`)
-    console.log(`[Order Service] Payload: ${payloadJson.slice(0, 200)}...`)
+    console.log(`[Order Service] Payload: ${payloadJson.slice(0, 300)}`)
 
     const orderRes = await postJson(orderUrl, orderPayload, { 'x-agent-secret': apiSecret })
     const orderData = orderRes.body
+
+    console.log(`[Order Service] Response status: ${orderRes.status}`)
+    console.log(`[Order Service] Response body: ${JSON.stringify(orderData).slice(0, 400)}`)
 
     if (orderRes.status < 200 || orderRes.status >= 300 || !orderData.success) {
       return {
