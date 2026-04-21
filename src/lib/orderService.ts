@@ -270,6 +270,7 @@ function getIntandokaziBaseUrl(): string {
   const raw =
     process.env.INTANDOKAZI_SITE_URL ||
     process.env.NEXT_PUBLIC_INTANDOKAZI_SITE_URL ||
+    process.env.NEXT_SITE_URL ||
     'https://intandokaziherbal.co.za'
 
   return raw.replace(/\/$/, '')
