@@ -378,7 +378,11 @@ async function injectCommerceContext(
 
   const orderResult = await createOrderFromConversation(phone, details)
   if (orderResult.success) {
-    systemPrompt += `\n\n[ORDER CREATED]\n- Reference: ${orderResult.orderRef}\n- Payment Link: ${orderResult.paymentUrl || 'not available'}\nConfirm order creation to customer and share payment link clearly.`
+    if (orderResult.paymentUrl) {
+      systemPrompt += `\n\n[ORDER CREATED]\n- Reference: ${orderResult.orderRef}\n- Payment Link: ${orderResult.paymentUrl}\nCRITICAL RESPONSE RULE: The order is already created. Reply with a direct confirmation and provide THIS exact payment portal link first: ${orderResult.paymentUrl}. Do NOT send the customer back to the generic shop/catalog URL. Ask the customer to complete payment using this portal link and then share POP.`
+    } else {
+      systemPrompt += `\n\n[ORDER CREATED]\n- Reference: ${orderResult.orderRef}\n- Payment Link: not available\nConfirm order creation to customer. Explain that the payment portal link is temporarily unavailable, then provide EFT as fallback and ask for POP.`
+    }
   } else {
     systemPrompt += `\n\n[ORDER CREATION FAILED] ${orderResult.error || 'Unknown error'}. Explain the issue and help customer adjust product/quantity or details.`
   }
