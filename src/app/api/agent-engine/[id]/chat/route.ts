@@ -105,7 +105,7 @@ export async function POST(
       enhancedSystemPrompt += '\n\nNEVER say or use these words/phrases: ' + agent.never_say
     }
 
-    const productIntentPattern = /\b(product|products|stock|available|price|cost|umuthi|buy|order|purchase)\b/i
+    const productIntentPattern = /\b(product|products|stock|available|price|cost|umuthi|umaxosh|buy|order|oreder|purchase)\b/i
     const listFollowUpPattern = /\b(list|show|them|all|catalog|catalogue)\b/i
     const recentUserText = (messageHistory || [])
       .filter((m: any) => (m?.sender || '').toLowerCase() === 'user' || (m?.sender || '').toLowerCase() === 'contact')
@@ -138,11 +138,11 @@ export async function POST(
       }
     }
 
-    const orderIntentPattern = /\b(place\s+an?\s+order|place\s+order|order\s+for\s+me|buy\s+for\s+me|i\s+want\s+to\s+order|purchase|checkout|can\s+you\s+place\s+an?\s+order)\b/i
+    const orderIntentPattern = /\b(place\s+an?\s+order|place\s+order|order\s+for\s+me|oreder\s+me|buy\s+for\s+me|i\s+want\s+to\s+order|purchase|checkout|can\s+you\s+place\s+an?\s+order|order\s+me|buy\s+me)\b/i
     const orderConfirmPattern = /\b(confirm|place order|go ahead|proceed|yes order|yes please order|ready to order|order now|place it|do it|yes proceed|yes go ahead)\b/i
     const recentCommerceContext = [recentUserText, messageHistory.map((m: any) => String(m?.content || '')).slice(-3).join(' ')].join(' ').toLowerCase()
     const hasRecentCommerceSignals = /\b(product|products|stock|price|order|payment|eft|bank|pep|mall|delivery|shop)\b/.test(recentCommerceContext)
-    const orderFollowUpPattern = /\b(order|buy|purchase|checkout|place it|place one)\b/i
+    const orderFollowUpPattern = /\b(order|oreder|buy|purchase|checkout|place it|place one|yes i need|i need that|yes please)\b/i
 
     // Detect when the bot just asked for order details (product, name, phone, etc.)
     const recentAssistantText = (messageHistory || [])
@@ -217,6 +217,8 @@ export async function POST(
         if (data.choices?.[0]?.message?.content) {
           aiResponse = data.choices[0].message.content
           console.log('[AgentChat] OpenRouter response received')
+        } else {
+          console.warn('[AgentChat] OpenRouter returned no content:', JSON.stringify(data).slice(0, 300))
         }
       } catch (err: any) {
         console.error('[AgentChat] OpenRouter error:', err.message)

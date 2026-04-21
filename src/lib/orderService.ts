@@ -406,7 +406,7 @@ export function extractOrderDetails(message: string, history: any[]): OrderDetai
     'get umuthi', 'buy umuthi', 'order umuthi', 'nehla', 'inhlanhla',
     'isichitho', 'vitality', 'utshwala', 'mavula kuvaliwe', 'umaxosha',
     'umuthi', 'protection', 'fertility', 'love potion', 'luck',
-    'umaxoshislwane', 'umaxhosislwane', 'umaxosha islwane', 'umaxosislwane',
+    'umaxoshislwane', 'umaxhosislwane', 'umaxhoshislwane', 'umaxhoshislwne', 'umaxosha islwane', 'umaxosislwane',
     'skin', 'glowing', 'dark spots', 'pimples'
   ]
   
@@ -423,6 +423,8 @@ export function extractOrderDetails(message: string, history: any[]): OrderDetai
     'umaxosha islwane': 'umaxosha islwane',
     'umaxoshislwane': 'umaxosha islwane',
     'umaxhosislwane': 'umaxosha islwane',
+    'umaxhoshislwane': 'umaxosha islwane',
+    'umaxhoshislwne': 'umaxosha islwane',
     'umaxosh islwane': 'umaxosha islwane',
     'mavula': 'mavula kuvaliwe',
     'mavula kuvaliwe': 'mavula kuvaliwe',
