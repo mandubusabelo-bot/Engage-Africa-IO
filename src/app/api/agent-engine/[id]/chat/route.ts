@@ -158,6 +158,7 @@ export async function POST(
 
     const orderIntentActive = orderIntentPattern.test(message) || (orderFollowUpPattern.test(message) && hasRecentCommerceSignals) || botAskedForOrderDetails
     let extractedOrderForFallback: ReturnType<typeof extractOrderDetails> = null
+    let forcedOrderResponse = ''
 
     if (orderIntentActive) {
       const extractedOrder = extractOrderDetails(message, messageHistory)
@@ -169,6 +170,18 @@ export async function POST(
         const missingOrderFields = getMissingInfo(extractedOrder)
         if (missingOrderFields.length > 0) {
           enhancedSystemPrompt += `\n\n[ORDER DETAILS PARTIAL] Product: ${extractedOrder.productName}. Missing: ${missingOrderFields.join(', ')}. Ask only for these missing fields and continue order flow.`
+        } else if (orderConfirmPattern.test(message)) {
+          const persistPhone = phone || extractedOrder.customerPhone || `test-ui-${params.id}`
+          const orderResult = await createOrderFromConversation(persistPhone, extractedOrder)
+          if (orderResult.success) {
+            if (orderResult.paymentUrl) {
+              forcedOrderResponse = `Order placed successfully! ✅\nReference: ${orderResult.orderRef || 'pending'}\nPayment portal: ${orderResult.paymentUrl}\nPlease complete payment using this exact link, then share your POP so we can process your order.`
+            } else {
+              forcedOrderResponse = `Order placed successfully! ✅\nReference: ${orderResult.orderRef || 'pending'}\nPayment portal link is currently unavailable. Please use EFT payment and share your POP so we can process your order.`
+            }
+          } else {
+            forcedOrderResponse = `Sorry, I couldn't place the order right now: ${orderResult.error || 'Unknown error'}. Please try again or contact us directly.`
+          }
         } else if (!orderConfirmPattern.test(message)) {
           enhancedSystemPrompt += `\n\n[ORDER READY TO PLACE]\n- Product: ${extractedOrder.productName}\n- Qty: ${extractedOrder.quantity || 1}\n- Name: ${extractedOrder.customerName}\n- Phone: ${extractedOrder.customerPhone}\n- Delivery: ${extractedOrder.deliveryMethod} to ${extractedOrder.deliveryLocation}\nAsk for explicit confirmation before placing order.`
         }
@@ -179,6 +192,9 @@ export async function POST(
 
     // Call AI service (OpenRouter or Gemini)
     let aiResponse = ''
+    if (forcedOrderResponse) {
+      aiResponse = forcedOrderResponse
+    }
     
     // Build message history for context
     const messages = [{ role: 'system', content: enhancedSystemPrompt }]
@@ -199,7 +215,7 @@ export async function POST(
     // Try OpenRouter first
     const openrouterKey = process.env.OPENROUTER_API_KEY
     const openrouterMaxTokens = Number(process.env.OPENROUTER_MAX_TOKENS || '900')
-    if (openrouterKey) {
+    if (openrouterKey && !aiResponse) {
       try {
         const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
           method: 'POST',
