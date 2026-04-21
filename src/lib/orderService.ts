@@ -2,7 +2,7 @@ import { supabaseAdmin } from './supabase-server'
 import https from 'https'
 import http from 'http'
 
-function postJson(url: string, payload: object, headers: Record<string, string>): Promise<{ status: number; body: any }> {
+function postJson(url: string, payload: object, headers: Record<string, string>, redirects = 5): Promise<{ status: number; body: any }> {
   return new Promise((resolve, reject) => {
     const json = JSON.stringify(payload)
     const buf = Buffer.from(json, 'utf-8')
@@ -20,11 +20,41 @@ function postJson(url: string, payload: object, headers: Record<string, string>)
       }
     }
     const req = (isHttps ? https : http).request(options, (res) => {
+      const status = res.statusCode || 0
+      if (status >= 300 && status < 400 && res.headers.location && redirects > 0) {
+        // Follow redirect — use GET for 301/302, keep POST for 307/308
+        const nextUrl = new URL(res.headers.location, url).toString()
+        if (status === 307 || status === 308) {
+          postJson(nextUrl, payload, headers, redirects - 1).then(resolve).catch(reject)
+        } else {
+          // 301/302: follow as GET
+          const redir = new URL(nextUrl)
+          const isRedirHttps = redir.protocol === 'https:'
+          const redirOpts = {
+            hostname: redir.hostname,
+            port: redir.port || (isRedirHttps ? 443 : 80),
+            path: redir.pathname + redir.search,
+            method: 'GET',
+            headers: { ...headers }
+          }
+          const redirReq = (isRedirHttps ? https : http).request(redirOpts, (r) => {
+            let d = ''
+            r.on('data', (c) => { d += c })
+            r.on('end', () => {
+              try { resolve({ status: r.statusCode || 0, body: JSON.parse(d) }) }
+              catch { resolve({ status: r.statusCode || 0, body: d }) }
+            })
+          })
+          redirReq.on('error', reject)
+          redirReq.end()
+        }
+        return
+      }
       let data = ''
       res.on('data', (chunk) => { data += chunk })
       res.on('end', () => {
-        try { resolve({ status: res.statusCode || 0, body: JSON.parse(data) }) }
-        catch { resolve({ status: res.statusCode || 0, body: data }) }
+        try { resolve({ status, body: JSON.parse(data) }) }
+        catch { resolve({ status, body: data }) }
       })
     })
     req.on('error', reject)
