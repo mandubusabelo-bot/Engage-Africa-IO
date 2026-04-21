@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-server'
-import { extractOrderDetails, getMissingInfo, searchAgentProducts } from '@/lib/orderService'
+import { createOrderFromConversation, extractOrderDetails, getMissingInfo, searchAgentProducts } from '@/lib/orderService'
 
 export async function POST(
   request: NextRequest,
@@ -256,6 +256,15 @@ export async function POST(
           const missingOrderFields = getMissingInfo(extractedOrderForFallback)
           if (missingOrderFields.length > 0) {
             aiResponse = `Perfect. I can continue your order for ${extractedOrderForFallback.productName}. Please share your ${missingOrderFields[0]} first.`
+          } else if (orderConfirmPattern.test(message)) {
+            // Actually place the order
+            const persistPhone = phone || extractedOrderForFallback.customerPhone || `test-ui-${params.id}`
+            const orderResult = await createOrderFromConversation(persistPhone, extractedOrderForFallback)
+            if (orderResult.success) {
+              aiResponse = `Order placed successfully! ✅\nReference: ${orderResult.orderRef || 'pending'}${orderResult.paymentUrl ? `\nPayment link: ${orderResult.paymentUrl}` : ''}\nProduct: ${extractedOrderForFallback.quantity || 1} x ${extractedOrderForFallback.productName}\nDelivery: ${extractedOrderForFallback.deliveryLocation}\nThank you, ${extractedOrderForFallback.customerName}!`
+            } else {
+              aiResponse = `Sorry, I couldn't place the order right now: ${orderResult.error || 'Unknown error'}. Please try again or contact us directly.`
+            }
           } else {
             aiResponse = `I have everything needed for ${extractedOrderForFallback.quantity || 1} x ${extractedOrderForFallback.productName}, for ${extractedOrderForFallback.customerName}, ${extractedOrderForFallback.customerPhone}, delivery to ${extractedOrderForFallback.deliveryLocation}. Please reply "confirm" and I will place it.`
           }
