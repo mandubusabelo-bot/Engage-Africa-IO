@@ -2398,6 +2398,13 @@ function AgentTestDrawer({ agent, onClose }: { agent: any; onClose: () => void }
   const [showDebug, setShowDebug] = useState(false)
   const [greetingSent, setGreetingSent] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const lastAgentMessage = [...messages].reverse().find((m) => m.role === 'agent')?.content || ''
+  const showPaymentQuickReplies = /choose your payment method by replying with a number/i.test(lastAgentMessage)
+  const paymentQuickReplies = [
+    { value: '1', label: '1) Pay Online Link' },
+    { value: '2', label: '2) EFT Details' },
+    { value: '3', label: '3) Change Order' }
+  ]
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -2423,10 +2430,10 @@ function AgentTestDrawer({ agent, onClose }: { agent: any; onClose: () => void }
     setGreetingSent(false)
   }
 
-  const sendMessage = async () => {
-    if (!input.trim()) return
+  const sendMessageWithText = async (rawMessage: string) => {
+    if (!rawMessage.trim()) return
 
-    const userMessage = input.trim()
+    const userMessage = rawMessage.trim()
     setInput('')
     const nextMessages = [...messages, { role: 'user' as const, content: userMessage }]
     setMessages(nextMessages)
@@ -2467,6 +2474,10 @@ function AgentTestDrawer({ agent, onClose }: { agent: any; onClose: () => void }
     } finally {
       setIsLoading(false)
     }
+  }
+
+  const sendMessage = async () => {
+    await sendMessageWithText(input)
   }
 
   return (
@@ -2559,6 +2570,19 @@ function AgentTestDrawer({ agent, onClose }: { agent: any; onClose: () => void }
 
         {/* Input */}
         <div className="p-4 border-t border-slate-800">
+          {showPaymentQuickReplies && !isLoading && (
+            <div className="mb-3 flex flex-wrap gap-2">
+              {paymentQuickReplies.map((option) => (
+                <button
+                  key={option.value}
+                  onClick={() => sendMessageWithText(option.value)}
+                  className="px-3 py-1.5 text-xs bg-emerald-500/20 border border-emerald-500/40 text-emerald-200 hover:bg-emerald-500/30 rounded-lg transition-colors"
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="flex gap-2">
             <input
               type="text"
