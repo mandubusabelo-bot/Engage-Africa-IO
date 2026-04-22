@@ -174,7 +174,7 @@ export async function POST(
     const orderIntentPattern = /\b(place\s+an?\s+order|place\s+order|order\s+for\s+me|oreder\s+me|buy\s+for\s+me|i\s+want\s+to\s+order|purchase|checkout|can\s+you\s+place\s+an?\s+order|order\s+me|buy\s+me)\b/i
     const orderConfirmPattern = /\b(confirm|place order|go ahead|proceed|yes order|yes please order|ready to order|order now|place it|do it|yes proceed|yes go ahead)\b/i
     const paymentRequestPattern = /\b(payment\s*link|payment|pay\s*link|portal|checkout\s*link|how\s*to\s*pay|pay\s*now|agent\s*pay|pay\s*please|just\s*pay|i.*pay|want\s*to\s*pay)\b/i
-    const onlineChoicePattern = /\b(pay\s*online|online\s*payment|payment\s*portal|portal\s*link|option\s*1|1️⃣)\b/i
+    const onlineChoicePattern = /\b(pay\s*online|online\s*payment|payment\s*portal|portal\s*link|option\s*1|1\b|1️⃣|agent\s*pay|use\s*agent|pay\s*for\s*me|process\s*(the\s*)?payment|send\s*(me\s*)?(the\s*)?(payment\s*)?link)\b/i
     const eftChoicePattern = /\b(eft|bank\s*transfer|bank\s*details)\b/i
     const capitecChoicePattern = /\b(capitec)\b/i
     const recentCommerceContext = [recentUserText, messageHistory.map((m: any) => String(m?.content || '')).slice(-3).join(' ')].join(' ').toLowerCase()
