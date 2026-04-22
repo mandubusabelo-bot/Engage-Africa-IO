@@ -174,13 +174,17 @@ export async function POST(
     const orderIntentPattern = /\b(place\s+an?\s+order|place\s+order|order\s+for\s+me|oreder\s+me|buy\s+for\s+me|i\s+want\s+to\s+order|purchase|checkout|can\s+you\s+place\s+an?\s+order|order\s+me|buy\s+me)\b/i
     const orderConfirmPattern = /\b(confirm|place order|go ahead|proceed|yes order|yes please order|ready to order|order now|place it|do it|yes proceed|yes go ahead)\b/i
     const paymentRequestPattern = /\b(payment\s*link|payment|pay\s*link|portal|checkout\s*link|how\s*to\s*pay|pay\s*now)\b/i
+    const onlineChoicePattern = /\b(pay\s*online|online\s*payment|payment\s*portal|portal\s*link|option\s*1|1️⃣)\b/i
     const eftChoicePattern = /\b(eft|bank\s*transfer|bank\s*details)\b/i
     const capitecChoicePattern = /\b(capitec)\b/i
     const recentCommerceContext = [recentUserText, messageHistory.map((m: any) => String(m?.content || '')).slice(-3).join(' ')].join(' ').toLowerCase()
     const hasRecentCommerceSignals = /\b(product|products|stock|price|order|payment|eft|bank|pep|mall|delivery|shop)\b/.test(recentCommerceContext)
     const orderFollowUpPattern = /\b(order|oreder|buy|purchase|checkout|place it|place one|yes i need|i need that|yes please)\b/i
     const paymentOptionChoice = message.trim().toLowerCase().match(/^(?:option\s*)?(1|2|3|4)$/)?.[1] || ''
-    const paymentChoice = paymentOptionChoice || (capitecChoicePattern.test(message) ? '3' : (eftChoicePattern.test(message) ? '2' : ''))
+    const paymentChoice = paymentOptionChoice || (onlineChoicePattern.test(message)
+      ? '1'
+      : (capitecChoicePattern.test(message) ? '3' : (eftChoicePattern.test(message) ? '2' : '')))
+    const paymentOptionsPrompt = 'Can I process this order for you?\n\nChoose one option:\n1️⃣ Agent Pay Online (I process now and send your payment link)\n2️⃣ EFT / Bank transfer details\n3️⃣ Capitec transfer details\n4️⃣ Change order details first'
 
     // Detect when the bot just asked for order details (product, name, phone, etc.)
     const recentAssistantText = (messageHistory || [])
@@ -269,11 +273,11 @@ export async function POST(
         } else if (paymentOptionChoice === '4') {
           forcedOrderResponse = 'No problem. Tell me what you want to change: 1) quantity, 2) collection location, or 3) product.'
         } else if (paymentRequestPattern.test(message)) {
-          forcedOrderResponse = `Can I process this order for you? 🛒\nReply with your preferred payment method:\n\n1️⃣ Pay online — secure payment portal link sent to you\n2️⃣ EFT / Bank transfer — we'll send you our banking details\n3️⃣ Capitec transfer — send directly to our Capitec number\n4️⃣ Change order details first`
+          forcedOrderResponse = paymentOptionsPrompt
         } else if (orderConfirmPattern.test(message)) {
-          forcedOrderResponse = `Can I process this order for you? 🛒\nJust choose how you'd like to pay:\n\n1️⃣ Pay online — secure payment portal link sent to you\n2️⃣ EFT / Bank transfer — we'll send you our banking details\n3️⃣ Capitec transfer — send directly to our Capitec number\n4️⃣ Change order details first`
+          forcedOrderResponse = paymentOptionsPrompt
         } else if (!orderConfirmPattern.test(message)) {
-          enhancedSystemPrompt += `\n\n[ORDER READY TO PLACE]\n- Product: ${extractedOrder.productName}\n- Qty: ${extractedOrder.quantity || 1}\n- Name: ${extractedOrder.customerName}\n- Phone: ${extractedOrder.customerPhone}\n- Delivery: ${extractedOrder.deliveryMethod} to ${extractedOrder.deliveryLocation}\nAsk the customer if you can process the order for them, then mention they can also pay via EFT or Capitec transfer as alternatives. Ask for explicit confirmation before placing order.`
+          forcedOrderResponse = `Great, thank you for the order details.\n${paymentOptionsPrompt}`
         }
       }
     }
@@ -368,9 +372,9 @@ export async function POST(
           if (missingOrderFields.length > 0) {
             aiResponse = `Perfect. I can continue your order for ${extractedOrderForFallback.productName}. Please share your ${missingOrderFields[0]} first.`
           } else if (orderConfirmPattern.test(message)) {
-            aiResponse = 'Perfect — before I finalize payment details, choose your payment method:\n1) Pay online (payment portal link)\n2) EFT / Bank transfer details\n3) Capitec transfer details\n4) Change order details first'
+            aiResponse = 'Can I process this order for you?\n\nChoose one option:\n1️⃣ Agent Pay Online (I process now and send your payment link)\n2️⃣ EFT / Bank transfer details\n3️⃣ Capitec transfer details\n4️⃣ Change order details first'
           } else {
-            aiResponse = `I have everything needed for ${extractedOrderForFallback.quantity || 1} x ${extractedOrderForFallback.productName}, for ${extractedOrderForFallback.customerName}, ${extractedOrderForFallback.customerPhone}, delivery to ${extractedOrderForFallback.deliveryLocation}. Please reply "confirm" and I will place it.`
+            aiResponse = 'Great, thank you for the order details.\nCan I process this order for you?\n\nChoose one option:\n1️⃣ Agent Pay Online (I process now and send your payment link)\n2️⃣ EFT / Bank transfer details\n3️⃣ Capitec transfer details\n4️⃣ Change order details first'
           }
         }
       } else if (needsProductContext && productFallbackList) {
