@@ -198,7 +198,8 @@ export async function POST(
       .toLowerCase()
     const botAskedForOrderDetails = /which product|how many|your (full )?name|cellphone|phone number|collection location|place the order/i.test(recentAssistantText)
 
-    const orderIntentActive = orderIntentPattern.test(message) || (orderFollowUpPattern.test(message) && hasRecentCommerceSignals) || botAskedForOrderDetails
+    const paymentFollowUpActive = (paymentRequestPattern.test(message) || Boolean(paymentChoice)) && hasRecentCommerceSignals
+    const orderIntentActive = orderIntentPattern.test(message) || (orderFollowUpPattern.test(message) && hasRecentCommerceSignals) || botAskedForOrderDetails || paymentFollowUpActive
     let extractedOrderForFallback: ReturnType<typeof extractOrderDetails> = null
     let forcedOrderResponse = ''
 
