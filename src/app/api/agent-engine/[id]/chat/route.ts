@@ -198,8 +198,9 @@ export async function POST(
       .toLowerCase()
     const botAskedForOrderDetails = /which product|how many|your (full )?name|cellphone|phone number|collection location|place the order/i.test(recentAssistantText)
 
+    const confirmFollowUpActive = orderConfirmPattern.test(message) && hasRecentCommerceSignals
     const paymentFollowUpActive = (paymentRequestPattern.test(message) || Boolean(paymentChoice)) && hasRecentCommerceSignals
-    const orderIntentActive = orderIntentPattern.test(message) || (orderFollowUpPattern.test(message) && hasRecentCommerceSignals) || botAskedForOrderDetails || paymentFollowUpActive
+    const orderIntentActive = orderIntentPattern.test(message) || (orderFollowUpPattern.test(message) && hasRecentCommerceSignals) || botAskedForOrderDetails || confirmFollowUpActive || paymentFollowUpActive
     let extractedOrderForFallback: ReturnType<typeof extractOrderDetails> = null
     let forcedOrderResponse = ''
 
@@ -208,7 +209,11 @@ export async function POST(
       extractedOrderForFallback = extractedOrder
 
       if (!extractedOrder) {
-        enhancedSystemPrompt += '\n\n[ORDER INTENT DETECTED] The customer wants to place an order but key details are missing. Ask for the product first, then collect full name, cellphone number, and collection location (PEP store or mall). Do not use fallback for this.'
+        if (confirmFollowUpActive || paymentFollowUpActive) {
+          forcedOrderResponse = 'I can process your order now, but I still need these details:\n- Product name\n- Quantity\n- Full name\n- Cellphone number\n- Collection point (PEP store/mall + code)'
+        } else {
+          enhancedSystemPrompt += '\n\n[ORDER INTENT DETECTED] The customer wants to place an order but key details are missing. Ask for the product first, then collect full name, cellphone number, and collection location (PEP store or mall). Do not use fallback for this.'
+        }
       } else {
         const missingOrderFields = getMissingInfo(extractedOrder)
         if (missingOrderFields.length > 0) {
