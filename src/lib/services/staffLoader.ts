@@ -1,5 +1,13 @@
 import { supabaseAdmin } from '@/lib/supabase-server'
 
+function parseNumbers(raw?: string): string[] {
+  if (!raw) return []
+  return raw
+    .split(/[;,\n]/)
+    .map((n) => n.trim())
+    .filter(Boolean)
+}
+
 export async function getStaffNumbers(
   role: 'dispatch' | 'human_agent' | 'disputes'
 ): Promise<string[]> {
@@ -18,11 +26,14 @@ export async function getStaffNumbers(
   }
 
   // Fallback to environment variables
-  const envMap: Record<string, string | undefined> = {
-    dispatch: process.env.DISPATCH_NUMBER,
-    human_agent: process.env.HUMAN_AGENT_NUMBER,
-    disputes: process.env.DISPUTES_NUMBER
+  const envMap: Record<string, string[]> = {
+    dispatch: [
+      ...parseNumbers(process.env.DISPATCH_NUMBERS),
+      ...parseNumbers(process.env.DISPATCH_NUMBER)
+    ],
+    human_agent: parseNumbers(process.env.HUMAN_AGENT_NUMBER),
+    disputes: parseNumbers(process.env.DISPUTES_NUMBER)
   }
 
-  return envMap[role] ? [envMap[role]!] : []
+  return envMap[role] || []
 }

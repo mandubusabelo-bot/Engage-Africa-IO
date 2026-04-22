@@ -50,6 +50,14 @@ function deriveSearchQuery(message: string): string {
   return normalized
 }
 
+function parseRecipientNumbers(raw?: string): string[] {
+  if (!raw) return []
+  return String(raw)
+    .split(/[;,\n]/)
+    .map((n) => n.trim())
+    .filter(Boolean)
+}
+
 function shouldTrigger(action: AgentActionRecord, message: string) {
   if (!action.is_enabled) return false
   const condition = (action.trigger_condition || '').trim().toLowerCase()
@@ -239,6 +247,7 @@ export async function runAgentActions(params: {
         ...parseInstructionConfig(action.instruction),
         ...(action.config || {})
       }
+      const dispatchRecipients = parseRecipientNumbers(mergedConfig.dispatchNumbers || mergedConfig.recipients)
 
       // Get contact info
       const { data: contact } = await supabaseAdmin
@@ -282,7 +291,7 @@ export async function runAgentActions(params: {
           'order.collectionDetails': order.collection_details || 'N/A',
           'order.contactName': order.contact_name || contact?.name || phone,
           'dispatch.timestamp': new Date().toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })
-        }, { role: 'dispatch', conversationId: conversation?.id, orderId: order.id })
+        }, { role: 'dispatch', recipients: dispatchRecipients, conversationId: conversation?.id, orderId: order.id })
       } else if (notificationType === 'pop_received' && order) {
         // POP received notification
         await notify('pop_received_customer', {}, { conversationId: conversation?.id, contactId: contact?.id })
@@ -296,7 +305,7 @@ export async function runAgentActions(params: {
           'order.collectionDetails': order.collection_details || 'N/A',
           'order.contactName': order.contact_name || contact?.name || phone,
           'dispatch.timestamp': new Date().toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })
-        }, { role: 'dispatch', conversationId: conversation?.id, orderId: order.id })
+        }, { role: 'dispatch', recipients: dispatchRecipients, conversationId: conversation?.id, orderId: order.id })
       } else {
         // Default pending order notification
         await notify('dispatch_pending_order', {
@@ -307,7 +316,7 @@ export async function runAgentActions(params: {
           'order.price': order?.price?.toFixed(2) || '0.00',
           'order.totalAmount': order?.total_amount?.toFixed(2) || '0.00',
           'order.collectionDetails': order?.collection_details || 'N/A'
-        }, { role: 'dispatch', conversationId: conversation?.id, orderId: order?.id })
+        }, { role: 'dispatch', recipients: dispatchRecipients, conversationId: conversation?.id, orderId: order?.id })
       }
 
       // Also log to messages for audit trail

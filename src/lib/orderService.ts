@@ -253,6 +253,7 @@ export async function searchAgentProducts(
 
 interface OrderResult {
   success: boolean
+  orderId?: string
   orderRef?: string
   paymentUrl?: string
   error?: string
@@ -431,6 +432,7 @@ export async function createOrderFromConversation(
 
     return {
       success: true,
+      orderId: orderData.order.id,
       orderRef: orderData.order.order_ref,
       paymentUrl: orderData.payment_url
     }

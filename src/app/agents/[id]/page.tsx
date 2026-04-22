@@ -1088,18 +1088,50 @@ export default function AgentDetail() {
                             )}
 
                             {action.action_type === 'notify_dispatch' && (
-                              <div>
-                                <label className="block text-xs font-medium text-slate-400 mb-1">
-                                  Dispatch Message Template
-                                </label>
-                                <textarea
-                                  value={action.config?.messageTemplate || ''}
-                                  onChange={(e) => updateLocalActionConfig(action.id, { messageTemplate: e.target.value })}
-                                  onBlur={() => handleUpdateActionConfig(action.id, { messageTemplate: action.config?.messageTemplate || '' }, { silent: true })}
-                                  rows={2}
-                                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"
-                                  placeholder="Dispatch alert for {{phone}}: {{message}}"
-                                />
+                              <div className="space-y-3">
+                                <div>
+                                  <label className="block text-xs font-medium text-slate-400 mb-1">
+                                    Dispatch Message Template
+                                  </label>
+                                  <textarea
+                                    value={action.config?.messageTemplate || ''}
+                                    onChange={(e) => updateLocalActionConfig(action.id, { messageTemplate: e.target.value })}
+                                    onBlur={() => handleUpdateActionConfig(action.id, { messageTemplate: action.config?.messageTemplate || '' }, { silent: true })}
+                                    rows={2}
+                                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"
+                                    placeholder="Dispatch alert for {{phone}}: {{message}}"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-medium text-slate-400 mb-1">
+                                    Notification Type
+                                  </label>
+                                  <select
+                                    value={action.config?.notificationType || 'dispatch_pending_order'}
+                                    onChange={(e) => handleUpdateActionConfig(action.id, { notificationType: e.target.value })}
+                                    className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-cyan-500"
+                                  >
+                                    <option value="dispatch_pending_order">Pending Order</option>
+                                    <option value="dispatch_new_order">New Order</option>
+                                    <option value="pop_received">POP Received</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-medium text-slate-400 mb-1">
+                                    Dispatch Numbers (optional)
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={action.config?.dispatchNumbers || ''}
+                                    onChange={(e) => updateLocalActionConfig(action.id, { dispatchNumbers: e.target.value })}
+                                    onBlur={() => handleUpdateActionConfig(action.id, { dispatchNumbers: action.config?.dispatchNumbers || '' }, { silent: true })}
+                                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"
+                                    placeholder="27685037221,27712345678"
+                                  />
+                                  <p className="text-xs text-slate-500 mt-1">
+                                    Comma-separated WhatsApp numbers. Leave empty to use Internal Staff or env fallback.
+                                  </p>
+                                </div>
                               </div>
                             )}
 
@@ -2403,7 +2435,8 @@ function AgentTestDrawer({ agent, onClose }: { agent: any; onClose: () => void }
   const paymentQuickReplies = [
     { value: '1', label: '1) Pay Online Link' },
     { value: '2', label: '2) EFT Details' },
-    { value: '3', label: '3) Change Order' }
+    { value: '3', label: '3) Capitec Transfer' },
+    { value: '4', label: '4) Change Order' }
   ]
 
   const scrollToBottom = () => {

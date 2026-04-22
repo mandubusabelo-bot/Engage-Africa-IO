@@ -1,6 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-server'
 import { createOrderFromConversation, extractOrderDetails, getMissingInfo, searchAgentProducts } from '@/lib/orderService'
+import { notify } from '@/lib/services/internalNotifier'
+
+async function notifyDispatchPendingOrder(params: {
+  conversationId?: string
+  orderId?: string
+  phone: string
+  orderRef?: string
+  productName: string
+  quantity?: number
+  customerName: string
+  deliveryLocation: string
+}) {
+  try {
+    await notify('dispatch_pending_order', {
+      'contact.name': params.customerName,
+      'contact.phone': params.phone,
+      'order.productName': params.productName,
+      'order.qty': String(params.quantity || 1),
+      'order.price': '0.00',
+      'order.totalAmount': '0.00',
+      'order.collectionDetails': params.deliveryLocation,
+      'order.contactName': params.customerName,
+      'order.ref': params.orderRef || 'pending',
+      'dispatch.timestamp': new Date().toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })
+    }, {
+      role: 'dispatch',
+      conversationId: params.conversationId,
+      orderId: params.orderId
+    })
+  } catch (error: any) {
+    console.error('[AgentChat] Failed to notify dispatch:', error?.message || error)
+  }
+}
 
 export async function POST(
   request: NextRequest,
@@ -141,10 +174,13 @@ export async function POST(
     const orderIntentPattern = /\b(place\s+an?\s+order|place\s+order|order\s+for\s+me|oreder\s+me|buy\s+for\s+me|i\s+want\s+to\s+order|purchase|checkout|can\s+you\s+place\s+an?\s+order|order\s+me|buy\s+me)\b/i
     const orderConfirmPattern = /\b(confirm|place order|go ahead|proceed|yes order|yes please order|ready to order|order now|place it|do it|yes proceed|yes go ahead)\b/i
     const paymentRequestPattern = /\b(payment\s*link|payment|pay\s*link|portal|checkout\s*link|how\s*to\s*pay|pay\s*now)\b/i
+    const eftChoicePattern = /\b(eft|bank\s*transfer|bank\s*details)\b/i
+    const capitecChoicePattern = /\b(capitec)\b/i
     const recentCommerceContext = [recentUserText, messageHistory.map((m: any) => String(m?.content || '')).slice(-3).join(' ')].join(' ').toLowerCase()
     const hasRecentCommerceSignals = /\b(product|products|stock|price|order|payment|eft|bank|pep|mall|delivery|shop)\b/.test(recentCommerceContext)
     const orderFollowUpPattern = /\b(order|oreder|buy|purchase|checkout|place it|place one|yes i need|i need that|yes please)\b/i
-    const paymentOptionChoice = message.trim().toLowerCase().match(/^(?:option\s*)?(1|2|3)$/)?.[1] || ''
+    const paymentOptionChoice = message.trim().toLowerCase().match(/^(?:option\s*)?(1|2|3|4)$/)?.[1] || ''
+    const paymentChoice = paymentOptionChoice || (capitecChoicePattern.test(message) ? '3' : (eftChoicePattern.test(message) ? '2' : ''))
 
     // Detect when the bot just asked for order details (product, name, phone, etc.)
     const recentAssistantText = (messageHistory || [])
@@ -172,36 +208,70 @@ export async function POST(
         const missingOrderFields = getMissingInfo(extractedOrder)
         if (missingOrderFields.length > 0) {
           enhancedSystemPrompt += `\n\n[ORDER DETAILS PARTIAL] Product: ${extractedOrder.productName}. Missing: ${missingOrderFields.join(', ')}. Ask only for these missing fields and continue order flow.`
-        } else if (paymentOptionChoice === '1') {
+        } else if (paymentChoice === '1') {
           const persistPhone = phone || extractedOrder.customerPhone || `test-ui-${params.id}`
           const orderResult = await createOrderFromConversation(persistPhone, extractedOrder)
           if (orderResult.success) {
+            await notifyDispatchPendingOrder({
+              conversationId,
+              orderId: orderResult.orderId,
+              phone: persistPhone,
+              orderRef: orderResult.orderRef,
+              productName: extractedOrder.productName,
+              quantity: extractedOrder.quantity,
+              customerName: extractedOrder.customerName,
+              deliveryLocation: extractedOrder.deliveryLocation
+            })
             if (orderResult.paymentUrl) {
-              forcedOrderResponse = `Great choice ✅\nOrder placed successfully!\nReference: ${orderResult.orderRef || 'pending'}\nPayment portal: ${orderResult.paymentUrl}\nPlease complete payment using this link, then share your POP.`
+              forcedOrderResponse = `Great choice ✅\nOrder placed successfully!\nReference: ${orderResult.orderRef || 'pending'}\nPayment portal: ${orderResult.paymentUrl}\nDispatch has been notified. Please complete payment using this link, then share your POP.`
             } else {
-              forcedOrderResponse = `Order placed successfully ✅\nReference: ${orderResult.orderRef || 'pending'}\nPayment portal link is temporarily unavailable. Please choose option 2 for EFT details and share your POP after payment.`
+              forcedOrderResponse = `Order placed successfully ✅\nReference: ${orderResult.orderRef || 'pending'}\nPayment portal link is temporarily unavailable. Please choose option 2 (EFT) or option 3 (Capitec transfer), then share your POP.`
             }
           } else {
-            forcedOrderResponse = `Sorry, I couldn't place the order right now: ${orderResult.error || 'Unknown error'}. Please try again or choose option 2 (EFT).`
+            forcedOrderResponse = `Sorry, I couldn't place the order right now: ${orderResult.error || 'Unknown error'}. Please try again or choose option 2 (EFT) / option 3 (Capitec transfer).`
           }
-        } else if (paymentOptionChoice === '2') {
-          forcedOrderResponse = 'EFT / Bank Transfer details:\n- Bank: Capitec Bank\n- Account Name: Miss Mokoatle\n- Account Number: 1506845620\n- Capitec linked number: 0625842441\nAfter payment, please share your POP so we can process your order.'
-        } else if (paymentOptionChoice === '3') {
+        } else if (paymentChoice === '2') {
+          const persistPhone = phone || extractedOrder.customerPhone || `test-ui-${params.id}`
+          const orderResult = await createOrderFromConversation(persistPhone, extractedOrder)
+          if (orderResult.success) {
+            await notifyDispatchPendingOrder({
+              conversationId,
+              orderId: orderResult.orderId,
+              phone: persistPhone,
+              orderRef: orderResult.orderRef,
+              productName: extractedOrder.productName,
+              quantity: extractedOrder.quantity,
+              customerName: extractedOrder.customerName,
+              deliveryLocation: extractedOrder.deliveryLocation
+            })
+            forcedOrderResponse = `Order placed successfully ✅\nReference: ${orderResult.orderRef || 'pending'}\nEFT / Bank Transfer details:\n- Bank: Capitec Bank\n- Account Name: Miss Mokoatle\n- Account Number: 1506845620\nDispatch has been notified. After payment, please share your POP so we can process your order.`
+          } else {
+            forcedOrderResponse = `Sorry, I couldn't place the order right now: ${orderResult.error || 'Unknown error'}. Please try again.`
+          }
+        } else if (paymentChoice === '3') {
+          const persistPhone = phone || extractedOrder.customerPhone || `test-ui-${params.id}`
+          const orderResult = await createOrderFromConversation(persistPhone, extractedOrder)
+          if (orderResult.success) {
+            await notifyDispatchPendingOrder({
+              conversationId,
+              orderId: orderResult.orderId,
+              phone: persistPhone,
+              orderRef: orderResult.orderRef,
+              productName: extractedOrder.productName,
+              quantity: extractedOrder.quantity,
+              customerName: extractedOrder.customerName,
+              deliveryLocation: extractedOrder.deliveryLocation
+            })
+            forcedOrderResponse = `Order placed successfully ✅\nReference: ${orderResult.orderRef || 'pending'}\nCapitec transfer details:\n- Capitec linked number: 0625842441\n- Account Name: Miss Mokoatle\nDispatch has been notified. After payment, please share your POP so we can process your order.`
+          } else {
+            forcedOrderResponse = `Sorry, I couldn't place the order right now: ${orderResult.error || 'Unknown error'}. Please try again.`
+          }
+        } else if (paymentOptionChoice === '4') {
           forcedOrderResponse = 'No problem. Tell me what you want to change: 1) quantity, 2) collection location, or 3) product.'
         } else if (paymentRequestPattern.test(message)) {
-          forcedOrderResponse = 'Choose your payment method by replying with a number:\n1) Pay online (generate payment portal link)\n2) EFT / Bank transfer details\n3) Change order details first'
+          forcedOrderResponse = 'Choose your payment method by replying with a number:\n1) Pay online (payment portal link)\n2) EFT / Bank transfer details\n3) Capitec transfer details\n4) Change order details first'
         } else if (orderConfirmPattern.test(message)) {
-          const persistPhone = phone || extractedOrder.customerPhone || `test-ui-${params.id}`
-          const orderResult = await createOrderFromConversation(persistPhone, extractedOrder)
-          if (orderResult.success) {
-            if (orderResult.paymentUrl) {
-              forcedOrderResponse = `Order placed successfully! ✅\nReference: ${orderResult.orderRef || 'pending'}\nPayment portal: ${orderResult.paymentUrl}\nPlease complete payment using this exact link, then share your POP so we can process your order.`
-            } else {
-              forcedOrderResponse = `Order placed successfully! ✅\nReference: ${orderResult.orderRef || 'pending'}\nPayment portal link is currently unavailable. Please use EFT payment and share your POP so we can process your order.`
-            }
-          } else {
-            forcedOrderResponse = `Sorry, I couldn't place the order right now: ${orderResult.error || 'Unknown error'}. Please try again or contact us directly.`
-          }
+          forcedOrderResponse = 'Perfect — before I finalize payment details, choose your payment method:\n1) Pay online (payment portal link)\n2) EFT / Bank transfer details\n3) Capitec transfer details\n4) Change order details first'
         } else if (!orderConfirmPattern.test(message)) {
           enhancedSystemPrompt += `\n\n[ORDER READY TO PLACE]\n- Product: ${extractedOrder.productName}\n- Qty: ${extractedOrder.quantity || 1}\n- Name: ${extractedOrder.customerName}\n- Phone: ${extractedOrder.customerPhone}\n- Delivery: ${extractedOrder.deliveryMethod} to ${extractedOrder.deliveryLocation}\nAsk for explicit confirmation before placing order.`
         }
@@ -298,14 +368,7 @@ export async function POST(
           if (missingOrderFields.length > 0) {
             aiResponse = `Perfect. I can continue your order for ${extractedOrderForFallback.productName}. Please share your ${missingOrderFields[0]} first.`
           } else if (orderConfirmPattern.test(message)) {
-            // Actually place the order
-            const persistPhone = phone || extractedOrderForFallback.customerPhone || `test-ui-${params.id}`
-            const orderResult = await createOrderFromConversation(persistPhone, extractedOrderForFallback)
-            if (orderResult.success) {
-              aiResponse = `Order placed successfully! ✅\nReference: ${orderResult.orderRef || 'pending'}${orderResult.paymentUrl ? `\nPayment link: ${orderResult.paymentUrl}` : ''}\nProduct: ${extractedOrderForFallback.quantity || 1} x ${extractedOrderForFallback.productName}\nDelivery: ${extractedOrderForFallback.deliveryLocation}\nThank you, ${extractedOrderForFallback.customerName}!`
-            } else {
-              aiResponse = `Sorry, I couldn't place the order right now: ${orderResult.error || 'Unknown error'}. Please try again or contact us directly.`
-            }
+            aiResponse = 'Perfect — before I finalize payment details, choose your payment method:\n1) Pay online (payment portal link)\n2) EFT / Bank transfer details\n3) Capitec transfer details\n4) Change order details first'
           } else {
             aiResponse = `I have everything needed for ${extractedOrderForFallback.quantity || 1} x ${extractedOrderForFallback.productName}, for ${extractedOrderForFallback.customerName}, ${extractedOrderForFallback.customerPhone}, delivery to ${extractedOrderForFallback.deliveryLocation}. Please reply "confirm" and I will place it.`
           }
