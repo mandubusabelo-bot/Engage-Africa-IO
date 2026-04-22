@@ -1,39 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-server'
-import { createOrderFromConversation, extractOrderDetails, getMissingInfo, searchAgentProducts } from '@/lib/orderService'
-import { notify } from '@/lib/services/internalNotifier'
-
-async function notifyDispatchPendingOrder(params: {
-  conversationId?: string
-  orderId?: string
-  phone: string
-  orderRef?: string
-  productName: string
-  quantity?: number
-  customerName: string
-  deliveryLocation: string
-}) {
-  try {
-    await notify('dispatch_pending_order', {
-      'contact.name': params.customerName,
-      'contact.phone': params.phone,
-      'order.productName': params.productName,
-      'order.qty': String(params.quantity || 1),
-      'order.price': '0.00',
-      'order.totalAmount': '0.00',
-      'order.collectionDetails': params.deliveryLocation,
-      'order.contactName': params.customerName,
-      'order.ref': params.orderRef || 'pending',
-      'dispatch.timestamp': new Date().toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })
-    }, {
-      role: 'dispatch',
-      conversationId: params.conversationId,
-      orderId: params.orderId
-    })
-  } catch (error: any) {
-    console.error('[AgentChat] Failed to notify dispatch:', error?.message || error)
-  }
-}
+import {
+  buildCommerceSystemPrompt,
+  runAgentOrchestrator,
+  type OrchestratorMessage
+} from '@/lib/agentOrchestrator'
 
 export async function POST(
   request: NextRequest,
@@ -79,15 +50,6 @@ export async function POST(
     if (Array.isArray(history) && history.length > 0) {
       isReturningContact = true
       messageHistory = history
-    }
-
-    const extractProductSearchQuery = (rawMessage: string): string => {
-      return rawMessage
-        .toLowerCase()
-        .replace(/[^a-z0-9\s]/g, ' ')
-        .replace(/\b(i|want|need|buy|order|please|for|me|the|a|an|to|show|find|looking|search|price|stock|of|products|product|list|them|all|available|do|you|have|what)\b/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim()
     }
 
     // Build enhanced system prompt with rules
@@ -138,261 +100,121 @@ export async function POST(
       enhancedSystemPrompt += '\n\nNEVER say or use these words/phrases: ' + agent.never_say
     }
 
-    const productIntentPattern = /\b(product|products|stock|available|price|cost|umuthi|umaxosh|buy|order|oreder|purchase)\b/i
-    const listFollowUpPattern = /\b(list|show|them|all|catalog|catalogue)\b/i
-    const recentUserText = (messageHistory || [])
-      .filter((m: any) => (m?.sender || '').toLowerCase() === 'user' || (m?.sender || '').toLowerCase() === 'contact')
-      .slice(-5)
-      .map((m: any) => String(m.content || ''))
-      .join(' ')
+    // Build commerce tool-calling system prompt on top of agent rules
+    const commerceSystemPrompt = buildCommerceSystemPrompt(enhancedSystemPrompt, {
+      agentName: agent.agent_name || agent.name || 'Assistant',
+      agentId: params.id,
+      conversationId,
+      phone
+    })
 
-    const needsProductContext =
-      productIntentPattern.test(message) ||
-      (listFollowUpPattern.test(message) && productIntentPattern.test(recentUserText))
+    // Build full message history for the LLM
+    const orchestratorMessages: OrchestratorMessage[] = [
+      { role: 'system', content: commerceSystemPrompt }
+    ]
 
-    let productFallbackList = ''
-
-    if (needsProductContext) {
-      const query = extractProductSearchQuery(message)
-      const liveProducts = await searchAgentProducts(query, query ? 8 : 15)
-      if (liveProducts.success && liveProducts.products.length > 0) {
-        const productLines = liveProducts.products
-          .slice(0, 12)
-          .map((p: any) => `- ${p.name}: R${Number(p.price || 0).toFixed(2)} (stock: ${p.stock_quantity ?? 'unknown'})`)
-          .join('\n')
-
-        productFallbackList = productLines
-
-        enhancedSystemPrompt += `\n\n[LIVE PRODUCT CATALOG for query "${query || '(all products)'}"]:\n${productLines}\nWhen user asks to list products, provide a concise list from this live data first before suggesting website browsing.`
-      } else if (liveProducts.success) {
-        enhancedSystemPrompt += '\n\n[PRODUCT LOOKUP] Live catalog returned no products for this query. Ask one clarifying product preference question (category, symptom, or budget). Do not use fallback immediately.'
-      } else {
-        enhancedSystemPrompt += `\n\n[PRODUCT LOOKUP ERROR] ${liveProducts.error || 'Unknown error'}. Ask one clarifying question and offer to retry lookup.`
-      }
-    }
-
-    const orderIntentPattern = /\b(place\s+an?\s+order|place\s+order|order\s+for\s+me|oreder\s+me|buy\s+for\s+me|i\s+want\s+to\s+order|purchase|checkout|can\s+you\s+place\s+an?\s+order|order\s+me|buy\s+me)\b/i
-    const orderConfirmPattern = /\b(confirm|place order|go ahead|proceed|yes order|yes please order|ready to order|order now|place it|do it|yes proceed|yes go ahead)\b/i
-    const paymentRequestPattern = /\b(payment\s*link|payment|pay\s*link|portal|checkout\s*link|how\s*to\s*pay|pay\s*now|agent\s*pay|pay\s*please|just\s*pay|i.*pay|want\s*to\s*pay)\b/i
-    const onlineChoicePattern = /\b(pay\s*online|online\s*payment|payment\s*portal|portal\s*link|option\s*1|1\b|1️⃣|agent\s*pay|use\s*agent|pay\s*for\s*me|process\s*(the\s*)?payment|send\s*(me\s*)?(the\s*)?(payment\s*)?link)\b/i
-    const eftChoicePattern = /\b(eft|bank\s*transfer|bank\s*details)\b/i
-    const capitecChoicePattern = /\b(capitec)\b/i
-    const recentCommerceContext = [recentUserText, messageHistory.map((m: any) => String(m?.content || '')).slice(-3).join(' ')].join(' ').toLowerCase()
-    const hasRecentCommerceSignals = /\b(product|products|stock|price|order|payment|eft|bank|pep|mall|delivery|shop)\b/.test(recentCommerceContext)
-    const orderFollowUpPattern = /\b(order|oreder|buy|purchase|checkout|place it|place one|yes i need|i need that|yes please)\b/i
-    const paymentOptionChoice = message.trim().toLowerCase().match(/^(?:option\s*)?(1|2|3|4)$/)?.[1] || ''
-    const paymentChoice = paymentOptionChoice || (onlineChoicePattern.test(message)
-      ? '1'
-      : (capitecChoicePattern.test(message) ? '3' : (eftChoicePattern.test(message) ? '2' : '')))
-    const paymentOptionsPrompt = 'Can I process this order for you?\n\nChoose one option:\n1️⃣ Agent Pay Online (I process now and send your payment link)\n2️⃣ EFT / Bank transfer details\n3️⃣ Capitec transfer details\n4️⃣ Change order details first'
-
-    // Detect when the bot just asked for order details (product, name, phone, etc.)
-    const recentAssistantText = (messageHistory || [])
-      .filter((m: any) => {
-        const s = (m?.sender || '').toLowerCase()
-        return s === 'agent' || s === 'ai' || s === 'bot' || s === 'assistant'
-      })
-      .slice(-2)
-      .map((m: any) => String(m.content || ''))
-      .join(' ')
-      .toLowerCase()
-    const botAskedForOrderDetails = /which product|how many|your (full )?name|cellphone|phone number|collection location|place the order/i.test(recentAssistantText)
-
-    const confirmFollowUpActive = orderConfirmPattern.test(message) && hasRecentCommerceSignals
-    const paymentFollowUpActive = (paymentRequestPattern.test(message) || Boolean(paymentChoice)) && hasRecentCommerceSignals
-    const orderIntentActive = orderIntentPattern.test(message) || (orderFollowUpPattern.test(message) && hasRecentCommerceSignals) || botAskedForOrderDetails || confirmFollowUpActive || paymentFollowUpActive
-    let extractedOrderForFallback: ReturnType<typeof extractOrderDetails> = null
-    let forcedOrderResponse = ''
-
-    if (orderIntentActive) {
-      const extractionMessage = (confirmFollowUpActive || paymentFollowUpActive) ? '' : message
-      const extractedOrder = extractOrderDetails(extractionMessage, messageHistory)
-      extractedOrderForFallback = extractedOrder
-
-      if (!extractedOrder) {
-        if (confirmFollowUpActive || paymentFollowUpActive) {
-          forcedOrderResponse = 'I can process your order now, but I still need these details:\n- Product name\n- Quantity\n- Full name\n- Cellphone number\n- Collection point (PEP store/mall + code)'
-        } else {
-          enhancedSystemPrompt += '\n\n[ORDER INTENT DETECTED] The customer wants to place an order but key details are missing. Ask for the product first, then collect full name, cellphone number, and collection location (PEP store or mall). Do not use fallback for this.'
-        }
-      } else {
-        const missingOrderFields = getMissingInfo(extractedOrder)
-        if (missingOrderFields.length > 0) {
-          enhancedSystemPrompt += `\n\n[ORDER DETAILS PARTIAL] Product: ${extractedOrder.productName}. Missing: ${missingOrderFields.join(', ')}. Ask only for these missing fields and continue order flow.`
-        } else if (paymentChoice === '1') {
-          const persistPhone = phone || extractedOrder.customerPhone || `test-ui-${params.id}`
-          const orderResult = await createOrderFromConversation(persistPhone, extractedOrder)
-          if (orderResult.success) {
-            await notifyDispatchPendingOrder({
-              conversationId,
-              orderId: orderResult.orderId,
-              phone: persistPhone,
-              orderRef: orderResult.orderRef,
-              productName: extractedOrder.productName,
-              quantity: extractedOrder.quantity,
-              customerName: extractedOrder.customerName,
-              deliveryLocation: extractedOrder.deliveryLocation
-            })
-            if (orderResult.paymentUrl) {
-              forcedOrderResponse = `Great choice ✅\nOrder placed successfully!\nReference: ${orderResult.orderRef || 'pending'}\nPayment portal: ${orderResult.paymentUrl}\nDispatch has been notified. Please complete payment using this link, then share your POP.`
-            } else {
-              forcedOrderResponse = `Order placed successfully ✅\nReference: ${orderResult.orderRef || 'pending'}\nPayment portal link is temporarily unavailable. Please choose option 2 (EFT) or option 3 (Capitec transfer), then share your POP.`
-            }
-          } else {
-            forcedOrderResponse = `Sorry, I couldn't place the order right now: ${orderResult.error || 'Unknown error'}. Please try again or choose option 2 (EFT) / option 3 (Capitec transfer).`
-          }
-        } else if (paymentChoice === '2') {
-          const persistPhone = phone || extractedOrder.customerPhone || `test-ui-${params.id}`
-          const orderResult = await createOrderFromConversation(persistPhone, extractedOrder)
-          if (orderResult.success) {
-            await notifyDispatchPendingOrder({
-              conversationId,
-              orderId: orderResult.orderId,
-              phone: persistPhone,
-              orderRef: orderResult.orderRef,
-              productName: extractedOrder.productName,
-              quantity: extractedOrder.quantity,
-              customerName: extractedOrder.customerName,
-              deliveryLocation: extractedOrder.deliveryLocation
-            })
-            forcedOrderResponse = `Order placed successfully ✅\nReference: ${orderResult.orderRef || 'pending'}\nEFT / Bank Transfer details:\n- Bank: Capitec Bank\n- Account Name: Miss Mokoatle\n- Account Number: 1506845620\nDispatch has been notified. After payment, please share your POP so we can process your order.`
-          } else {
-            forcedOrderResponse = `Sorry, I couldn't place the order right now: ${orderResult.error || 'Unknown error'}. Please try again.`
-          }
-        } else if (paymentChoice === '3') {
-          const persistPhone = phone || extractedOrder.customerPhone || `test-ui-${params.id}`
-          const orderResult = await createOrderFromConversation(persistPhone, extractedOrder)
-          if (orderResult.success) {
-            await notifyDispatchPendingOrder({
-              conversationId,
-              orderId: orderResult.orderId,
-              phone: persistPhone,
-              orderRef: orderResult.orderRef,
-              productName: extractedOrder.productName,
-              quantity: extractedOrder.quantity,
-              customerName: extractedOrder.customerName,
-              deliveryLocation: extractedOrder.deliveryLocation
-            })
-            forcedOrderResponse = `Order placed successfully ✅\nReference: ${orderResult.orderRef || 'pending'}\nCapitec transfer details:\n- Capitec linked number: 0625842441\n- Account Name: Miss Mokoatle\nDispatch has been notified. After payment, please share your POP so we can process your order.`
-          } else {
-            forcedOrderResponse = `Sorry, I couldn't place the order right now: ${orderResult.error || 'Unknown error'}. Please try again.`
-          }
-        } else if (paymentOptionChoice === '4') {
-          forcedOrderResponse = 'No problem. Tell me what you want to change: 1) quantity, 2) collection location, or 3) product.'
-        } else if (paymentRequestPattern.test(message)) {
-          forcedOrderResponse = paymentOptionsPrompt
-        } else if (orderConfirmPattern.test(message)) {
-          forcedOrderResponse = paymentOptionsPrompt
-        } else if (!orderConfirmPattern.test(message)) {
-          forcedOrderResponse = `Great, thank you for the order details.\n${paymentOptionsPrompt}`
-        }
-      }
-    }
-
-    console.log('[AgentChat] Enhanced system prompt built, length:', enhancedSystemPrompt.length)
-
-    // Call AI service (OpenRouter or Gemini)
-    let aiResponse = ''
-    if (forcedOrderResponse) {
-      aiResponse = forcedOrderResponse
-    }
-    
-    // Build message history for context
-    const messages = [{ role: 'system', content: enhancedSystemPrompt }]
-    
-    // Add conversation history if available
     if (messageHistory.length > 0) {
       messageHistory.forEach((msg: any) => {
-        messages.push({
+        orchestratorMessages.push({
           role: msg.sender === 'agent' || msg.sender === 'ai' || msg.sender === 'bot' ? 'assistant' : 'user',
-          content: msg.content
+          content: String(msg.content || '')
         })
       })
     }
-    
-    // Add current message
-    messages.push({ role: 'user', content: message })
-    
-    // Try OpenRouter first
-    const openrouterKey = process.env.OPENROUTER_API_KEY
-    const openrouterMaxTokens = Number(process.env.OPENROUTER_MAX_TOKENS || '900')
-    if (openrouterKey && !aiResponse) {
-      try {
-        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${openrouterKey}`,
-            'Content-Type': 'application/json',
-            'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'https://engage-africa.io'
-          },
-          body: JSON.stringify({
-            model: process.env.OPENROUTER_MODEL || 'google/gemini-2.0-flash-exp:free',
-            messages: messages,
-            max_tokens: Number.isFinite(openrouterMaxTokens) && openrouterMaxTokens > 0 ? openrouterMaxTokens : 900,
-            temperature: 0.5
+
+    orchestratorMessages.push({ role: 'user', content: message })
+
+    // LLM caller: OpenRouter first, Gemini fallback
+    const callLLM = async (msgs: OrchestratorMessage[]): Promise<string> => {
+      const openrouterKey = process.env.OPENROUTER_API_KEY
+      const openrouterMaxTokens = Number(process.env.OPENROUTER_MAX_TOKENS || '900')
+
+      if (openrouterKey) {
+        try {
+          const chatMessages = msgs.map((m) => {
+            if (m.role === 'tool') {
+              return {
+                role: 'user',
+                content: `TOOL_RESULT(${m.name || 'tool'}): ${m.content}`
+              }
+            }
+            return { role: m.role, content: m.content }
           })
-        })
 
-        const data = await response.json()
-        if (data.choices?.[0]?.message?.content) {
-          aiResponse = data.choices[0].message.content
-          console.log('[AgentChat] OpenRouter response received')
-        } else {
+          const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${openrouterKey}`,
+              'Content-Type': 'application/json',
+              'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'https://engage-africa.io'
+            },
+            body: JSON.stringify({
+              model: process.env.OPENROUTER_MODEL || 'google/gemini-2.0-flash-exp:free',
+              messages: chatMessages,
+              max_tokens: Number.isFinite(openrouterMaxTokens) && openrouterMaxTokens > 0 ? openrouterMaxTokens : 900,
+              temperature: 0.4
+            })
+          })
+          const data = await response.json()
+          const content = data?.choices?.[0]?.message?.content
+          if (content) return content
           console.warn('[AgentChat] OpenRouter returned no content:', JSON.stringify(data).slice(0, 300))
+        } catch (err: any) {
+          console.error('[AgentChat] OpenRouter error:', err.message)
         }
-      } catch (err: any) {
-        console.error('[AgentChat] OpenRouter error:', err.message)
       }
+
+      if (process.env.GEMINI_API_KEY) {
+        try {
+          const { GoogleGenerativeAI } = await import('@google/generative-ai')
+          const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
+          const model = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.0-flash' })
+
+          const systemText = msgs.find((m) => m.role === 'system')?.content || ''
+          const transcript = msgs
+            .filter((m) => m.role !== 'system')
+            .map((m) => {
+              if (m.role === 'tool') return `TOOL_RESULT(${m.name || 'tool'}): ${m.content}`
+              const label = m.role === 'assistant' ? 'Assistant' : 'User'
+              return `${label}: ${m.content}`
+            })
+            .join('\n')
+
+          const result = await model.generateContent({
+            contents: [{ role: 'user', parts: [{ text: `${systemText}\n\nConversation:\n${transcript}\n\nAssistant:` }] }]
+          })
+          return result.response.text() || ''
+        } catch (err: any) {
+          console.error('[AgentChat] Gemini error:', err.message)
+        }
+      }
+
+      return ''
     }
 
-    // Fallback to Gemini
-    if (!aiResponse && process.env.GEMINI_API_KEY) {
-      try {
-        const { GoogleGenerativeAI } = await import('@google/generative-ai')
-        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
-        const model = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.0-flash' })
+    const orchestrationResult = await runAgentOrchestrator(
+      orchestratorMessages,
+      {
+        agentName: agent.agent_name || agent.name || 'Assistant',
+        agentId: params.id,
+        conversationId,
+        phone
+      },
+      callLLM,
+      3
+    )
 
-        const conversationTranscript = messages
-          .filter((m: any) => m.role !== 'system')
-          .map((m: any) => `${m.role === 'assistant' ? 'Assistant' : 'User'}: ${m.content}`)
-          .join('\n')
-        
-        const result = await model.generateContent({
-          contents: [{ role: 'user', parts: [{ text: `${enhancedSystemPrompt}\n\nConversation:\n${conversationTranscript}\n\nAssistant:` }] }]
-        })
-        
-        aiResponse = result.response.text()
-        console.log('[AgentChat] Gemini response received')
-      } catch (err: any) {
-        console.error('[AgentChat] Gemini error:', err.message)
-      }
-    }
+    let aiResponse = orchestrationResult.reply
 
-    // Fallback response if AI fails — commerce-aware deterministic replies
     if (!aiResponse || !aiResponse.trim()) {
-      console.log('[AgentChat] AI returned empty — using deterministic fallback', { orderIntentActive, needsProductContext, isShortOpener })
-      if (orderIntentActive) {
-        if (!extractedOrderForFallback) {
-          aiResponse = 'Absolutely — I can place the order for you. Which product would you like, and how many bottles/items should I place?'
-        } else {
-          const missingOrderFields = getMissingInfo(extractedOrderForFallback)
-          if (missingOrderFields.length > 0) {
-            aiResponse = `Perfect. I can continue your order for ${extractedOrderForFallback.productName}. Please share your ${missingOrderFields[0]} first.`
-          } else if (orderConfirmPattern.test(message)) {
-            aiResponse = 'Can I process this order for you?\n\nChoose one option:\n1️⃣ Agent Pay Online (I process now and send your payment link)\n2️⃣ EFT / Bank transfer details\n3️⃣ Capitec transfer details\n4️⃣ Change order details first'
-          } else {
-            aiResponse = 'Great, thank you for the order details.\nCan I process this order for you?\n\nChoose one option:\n1️⃣ Agent Pay Online (I process now and send your payment link)\n2️⃣ EFT / Bank transfer details\n3️⃣ Capitec transfer details\n4️⃣ Change order details first'
-          }
-        }
-      } else if (needsProductContext && productFallbackList) {
-        aiResponse = `Here are the products currently available:\n${productFallbackList}\nTell me which one you want and I can help you place the order.`
-      } else if (needsProductContext) {
-        aiResponse = 'I can help with products. Tell me the concern you want to treat (or your budget), and I will recommend options.'
-      } else if (isShortOpener) {
-        aiResponse = 'Hi there! How can I help you today?'
-      } else {
-        aiResponse = `Hello! I'm ${agent.name}. I received your message: "${message}". How can I help you today?`
-      }
+      aiResponse = `Sorry, I'm having trouble processing that right now. Please try again or type "menu" to see what I can help with.`
+    }
+
+    if (orchestrationResult.toolCalls.length > 0) {
+      console.log('[AgentChat] Tool calls executed:', orchestrationResult.toolCalls.map((t) => t.tool).join(', '))
+    }
+    if (orchestrationResult.orderCreated) {
+      console.log('[AgentChat] Order created:', orchestrationResult.orderCreated.orderRef)
     }
 
     // Save AI response to database

@@ -63,7 +63,7 @@ function postJson(url: string, payload: object, headers: Record<string, string>,
   })
 }
 
-interface OrderDetails {
+export interface OrderDetails {
   productName: string
   quantity?: number
   customerName: string
