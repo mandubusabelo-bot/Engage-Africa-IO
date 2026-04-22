@@ -205,7 +205,8 @@ export async function POST(
     let forcedOrderResponse = ''
 
     if (orderIntentActive) {
-      const extractedOrder = extractOrderDetails(message, messageHistory)
+      const extractionMessage = (confirmFollowUpActive || paymentFollowUpActive) ? '' : message
+      const extractedOrder = extractOrderDetails(extractionMessage, messageHistory)
       extractedOrderForFallback = extractedOrder
 
       if (!extractedOrder) {
