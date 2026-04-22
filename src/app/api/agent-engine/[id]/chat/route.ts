@@ -269,11 +269,11 @@ export async function POST(
         } else if (paymentOptionChoice === '4') {
           forcedOrderResponse = 'No problem. Tell me what you want to change: 1) quantity, 2) collection location, or 3) product.'
         } else if (paymentRequestPattern.test(message)) {
-          forcedOrderResponse = 'Choose your payment method by replying with a number:\n1) Pay online (payment portal link)\n2) EFT / Bank transfer details\n3) Capitec transfer details\n4) Change order details first'
+          forcedOrderResponse = `Can I process this order for you? 🛒\nReply with your preferred payment method:\n\n1️⃣ Pay online — secure payment portal link sent to you\n2️⃣ EFT / Bank transfer — we'll send you our banking details\n3️⃣ Capitec transfer — send directly to our Capitec number\n4️⃣ Change order details first`
         } else if (orderConfirmPattern.test(message)) {
-          forcedOrderResponse = 'Perfect — before I finalize payment details, choose your payment method:\n1) Pay online (payment portal link)\n2) EFT / Bank transfer details\n3) Capitec transfer details\n4) Change order details first'
+          forcedOrderResponse = `Can I process this order for you? 🛒\nJust choose how you'd like to pay:\n\n1️⃣ Pay online — secure payment portal link sent to you\n2️⃣ EFT / Bank transfer — we'll send you our banking details\n3️⃣ Capitec transfer — send directly to our Capitec number\n4️⃣ Change order details first`
         } else if (!orderConfirmPattern.test(message)) {
-          enhancedSystemPrompt += `\n\n[ORDER READY TO PLACE]\n- Product: ${extractedOrder.productName}\n- Qty: ${extractedOrder.quantity || 1}\n- Name: ${extractedOrder.customerName}\n- Phone: ${extractedOrder.customerPhone}\n- Delivery: ${extractedOrder.deliveryMethod} to ${extractedOrder.deliveryLocation}\nAsk for explicit confirmation before placing order.`
+          enhancedSystemPrompt += `\n\n[ORDER READY TO PLACE]\n- Product: ${extractedOrder.productName}\n- Qty: ${extractedOrder.quantity || 1}\n- Name: ${extractedOrder.customerName}\n- Phone: ${extractedOrder.customerPhone}\n- Delivery: ${extractedOrder.deliveryMethod} to ${extractedOrder.deliveryLocation}\nAsk the customer if you can process the order for them, then mention they can also pay via EFT or Capitec transfer as alternatives. Ask for explicit confirmation before placing order.`
         }
       }
     }
