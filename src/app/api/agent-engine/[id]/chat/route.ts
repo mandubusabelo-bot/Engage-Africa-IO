@@ -350,7 +350,9 @@ export async function POST(
     let aiResponse = orchestrationResult.reply
 
     // ── ORDER SUMMARY DETECTION: always replace with exact payment options ──────
+    // Skip entirely if payment already confirmed (don't re-append payment options)
     const looksLikeOrderSummary =
+      !isPaymentAlreadyConfirmed &&
       !orchestrationResult.orderCreated &&
       (
         // Pattern 1: explicit Total + Name/Cell labels
@@ -368,6 +370,13 @@ export async function POST(
         .split('\nOnce confirmed')[0]
         .trim()
       aiResponse += '\n\nI can make the payment for you 💳\nAlternatively, use these other options:\n1) EFT / Bank transfer\n2) Capitec transfer'
+    } else if (isPaymentAlreadyConfirmed) {
+      // Strip any payment options the LLM may have hallucinated into its response
+      aiResponse = aiResponse
+        .split('\n\nI can make the payment')[0]
+        .split('\n\nAlternatively, use these')[0]
+        .split('\nI can make the payment')[0]
+        .trim()
     }
     // ── END ORDER SUMMARY DETECTION ──────────────────────────────────────────────
 
