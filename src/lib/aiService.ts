@@ -638,10 +638,13 @@ export async function handleIncomingWhatsApp(
     const contactName = pushName || contact?.name || phone.split('@')[0]
 
     if (!contact) {
-      const { data: newContacts } = await supabaseAdmin
+      const { data: newContacts, error: insertError } = await supabaseAdmin
         .from('contacts')
-        .insert({ phone, name: contactName, last_message_at: new Date().toISOString() })
+        .upsert({ phone, name: contactName, last_message_at: new Date().toISOString() }, { onConflict: 'phone' })
         .select()
+      if (insertError) {
+        console.error(`[Handler] Contact upsert failed for ${phone}:`, insertError.message)
+      }
       contact = newContacts?.[0] || { name: contactName, phone }
       if (contact?.id) await emitConversationOpened(contact.id, phone)
       console.log(`[Handler] New contact: ${contactName}`)
