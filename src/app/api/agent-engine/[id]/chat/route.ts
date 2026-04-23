@@ -133,6 +133,8 @@ export async function POST(
     const lastAgentContent: string = agentMsgs[agentMsgs.length - 1]?.content || ''
 
     // Guard: payment already confirmed — skip all payment/order flow
+    const msgLower = message.toLowerCase()
+
     // Check last agent message in DB
     const lastAgentIndicatesPaymentDone =
       (lastAgentContent.toLowerCase().includes('payment') &&
@@ -142,14 +144,17 @@ export async function POST(
       lastAgentContent.includes('dispatch has been notified') ||
       lastAgentContent.includes('Dispatch notification sent') ||
       lastAgentContent.toLowerCase().includes('order is on the way')
+
     // Also check if the incoming message itself signals payment was already done
     const incomingIndicatesPaymentDone =
-      /i (?:just |have |already )?paid/i.test(message) ||
-      /\bORD-[A-Z0-9]+-[A-Z0-9]+\b/.test(message) ||
-      /already paid/i.test(message) ||
-      /payment (?:done|made|successful|went through)/i.test(message) ||
-      /paid for my order/i.test(message) ||
-      /confirm my order/i.test(message)
+      /\bpaid\b/.test(msgLower) ||
+      /\bjust paid\b/.test(msgLower) ||
+      /\balready paid\b/.test(msgLower) ||
+      /payment (done|made|successful|went through)/.test(msgLower) ||
+      /paid for my order/.test(msgLower) ||
+      /confirm my order/.test(msgLower) ||
+      /\bord-[-a-z0-9]+/.test(msgLower)
+
     const isPaymentAlreadyConfirmed = lastAgentIndicatesPaymentDone || incomingIndicatesPaymentDone
 
     // Stage 1: last agent showed an order summary, user is confirming it
