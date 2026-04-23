@@ -131,6 +131,17 @@ export async function POST(
       m.sender === 'agent' || m.sender === 'ai' || m.sender === 'bot'
     )
     const lastAgentContent: string = agentMsgs[agentMsgs.length - 1]?.content || ''
+
+    // Guard: payment already confirmed — skip all payment/order flow
+    const isPaymentAlreadyConfirmed =
+      (lastAgentContent.toLowerCase().includes('payment') &&
+        (lastAgentContent.toLowerCase().includes('received') ||
+         lastAgentContent.toLowerCase().includes('confirmed') ||
+         lastAgentContent.toLowerCase().includes('being processed'))) ||
+      lastAgentContent.includes('dispatch has been notified') ||
+      lastAgentContent.includes('Dispatch notification sent') ||
+      lastAgentContent.toLowerCase().includes('order is on the way')
+
     // Stage 1: last agent showed an order summary, user is confirming it
     const lastAgentIsOrderSummary =
       (/x\d+.*R\d+/i.test(lastAgentContent) && /confirm/i.test(lastAgentContent)) ||
@@ -144,7 +155,7 @@ export async function POST(
       (lastAgentContent.includes('EFT') && lastAgentContent.includes('Capitec'))
 
     // Stage 1 handler: show payment options after order confirmation
-    if (lastAgentIsOrderSummary && userIsConfirming && !isAtPaymentOptionsStep) {
+    if (!isPaymentAlreadyConfirmed && lastAgentIsOrderSummary && userIsConfirming && !isAtPaymentOptionsStep) {
       const paymentOptionsMessage = `Great! How would you like to pay? 💳\n\nI can make the payment for you 💳\nAlternatively, use these other options:\n1) EFT / Bank transfer\n2) Capitec transfer`
       const persistedPhone = phone || `test-ui-${params.id}`
       await supabaseAdmin.from('messages').insert({
@@ -168,7 +179,7 @@ export async function POST(
       return NextResponse.json({ success: true, response: paymentOptionsMessage, agent: agent.name })
     }
 
-    if (isAtPaymentOptionsStep) {
+    if (!isPaymentAlreadyConfirmed && isAtPaymentOptionsStep) {
       const lc = message.toLowerCase().trim()
       let paymentReply = ''
 
