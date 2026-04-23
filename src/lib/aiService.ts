@@ -741,6 +741,75 @@ export async function handleIncomingWhatsApp(
     // ── 9b. PAYMENT STATE: deterministic — same logic as chat route ──────────
     const agentHistoryMsgs = history.filter((m: any) => m.sender === 'agent' || m.sender === 'ai' || m.sender === 'bot')
     const lastAgentHistoryContent: string = agentHistoryMsgs[agentHistoryMsgs.length - 1]?.content || ''
+    const msgLower = message.toLowerCase()
+
+    // Guard: skip payment flow if payment already confirmed
+    const lastAgentIndicatesPaymentDone =
+      (lastAgentHistoryContent.toLowerCase().includes('payment') &&
+        (lastAgentHistoryContent.toLowerCase().includes('received') ||
+         lastAgentHistoryContent.toLowerCase().includes('confirmed') ||
+         lastAgentHistoryContent.toLowerCase().includes('being processed'))) ||
+      lastAgentHistoryContent.includes('dispatch has been notified') ||
+      lastAgentHistoryContent.toLowerCase().includes('order is on the way')
+    const incomingIndicatesPaymentDone =
+      /\bpaid\b/.test(msgLower) ||
+      /payment (done|made|successful|went through)/.test(msgLower) ||
+      /paid for my order/.test(msgLower) ||
+      /confirm my order/.test(msgLower) ||
+      /\bord-[-a-z0-9]+/.test(msgLower)
+    const isPaymentAlreadyConfirmed = lastAgentIndicatesPaymentDone || incomingIndicatesPaymentDone
+
+    // ── DISPATCH TRIGGER: fire when customer sends post-payment ORD- message ──
+    const orderRefMatch = message.match(/\bORD-[A-Z0-9]+-[A-Z0-9]+\b/i)
+    if (incomingIndicatesPaymentDone && orderRefMatch && agent?.id) {
+      const orderRef = orderRefMatch[0].toUpperCase()
+      console.log(`[Dispatch] Triggered by payment message, order: ${orderRef}`)
+      try {
+        const { data: actions } = await supabaseAdmin
+          .from('agent_actions')
+          .select('*')
+          .eq('agent_id', agent.id)
+          .eq('action_type', 'notify_dispatch')
+          .eq('is_enabled', true)
+          .limit(1)
+        const dispatchAction = actions?.[0]
+        console.log(`[Dispatch] Action found: ${!!dispatchAction}, config:`, JSON.stringify(dispatchAction?.config || null))
+        const configNumbers: string = dispatchAction?.config?.dispatchNumbers || ''
+        const envNumbers: string = process.env.DISPATCH_NUMBERS || process.env.DISPATCH_NUMBER || ''
+        console.log(`[Dispatch] configNumbers="${configNumbers}" envNumbers="${envNumbers}"`)
+        const dispatchNumbers = (configNumbers || envNumbers)
+          .split(/[,;\n]/).map((n: string) => n.trim()).filter(Boolean)
+        if (dispatchNumbers.length > 0) {
+          const dispatchMsg =
+            `🚨 *Payment Confirmed — Dispatch Required*\n\n` +
+            `📦 *Order Ref:* ${orderRef}\n` +
+            `📱 *Customer Phone:* ${phone}\n` +
+            `👤 *Customer:* ${contactName || 'N/A'}\n` +
+            `💬 *Message:* ${message.slice(0, 200)}\n` +
+            `⏰ ${new Date().toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })}`
+          const apiUrl = process.env.EVOLUTION_API_URL
+          const apiKey = process.env.EVOLUTION_API_KEY
+          const instance = process.env.EVOLUTION_INSTANCE_NAME || process.env.EVOLUTION_INSTANCE
+          if (apiUrl && apiKey && instance) {
+            for (const num of dispatchNumbers) {
+              await fetch(`${apiUrl}/message/sendText/${instance}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', apikey: apiKey },
+                body: JSON.stringify({ number: num.replace(/\D/g, ''), textMessage: { text: dispatchMsg } })
+              }).catch((err: any) => console.error('[Dispatch] WhatsApp failed:', err?.message))
+            }
+            console.log(`[Dispatch] Sent to: ${dispatchNumbers.join(', ')}`)
+          } else {
+            console.warn('[Dispatch] Evolution API env vars missing')
+          }
+        } else {
+          console.warn('[Dispatch] No dispatch numbers in action config or env')
+        }
+      } catch (err: any) {
+        console.error('[Dispatch] Error:', err?.message)
+      }
+    }
+    // ── END DISPATCH TRIGGER ─────────────────────────────────────────────────
 
     // Stage 1: last agent was an order summary and user is confirming → show payment options
     const lastAgentIsOrderSummary =
@@ -752,7 +821,7 @@ export async function handleIncomingWhatsApp(
       lastAgentHistoryContent.includes('I can make the payment') ||
       (lastAgentHistoryContent.includes('EFT') && lastAgentHistoryContent.includes('Capitec'))
 
-    if (lastAgentIsOrderSummary && userIsConfirming && !isAtPaymentStep) {
+    if (!isPaymentAlreadyConfirmed && lastAgentIsOrderSummary && userIsConfirming && !isAtPaymentStep) {
       const paymentOptionsMsg = `Great! How would you like to pay? 💳\n\nI can make the payment for you 💳\nAlternatively, use these other options:\n1) EFT / Bank transfer\n2) Capitec transfer`
       await supabaseAdmin.from('messages').insert({ agent_id: agent?.id || null, content: paymentOptionsMsg, sender: 'agent', phone })
       const interactiveResult = await sendPaymentOptionsInteractive(phone, lastAgentHistoryContent.slice(0, 300))
@@ -763,7 +832,7 @@ export async function handleIncomingWhatsApp(
       return
     }
 
-    if (isAtPaymentStep) {
+    if (!isPaymentAlreadyConfirmed && isAtPaymentStep) {
       const lc = message.toLowerCase().trim()
       let paymentReply = ''
 
@@ -827,6 +896,7 @@ export async function handleIncomingWhatsApp(
 
     // Interactive payment picker for ANY order summary (strips LLM text options, replaces with list message)
     const looksLikeOrderSummary =
+      !isPaymentAlreadyConfirmed &&
       (aiResponse.includes('Total:') || /total.*r\d+/i.test(aiResponse) || aiResponse.includes('💰')) &&
       (aiResponse.includes('Name:') || aiResponse.includes('Cell:') || aiResponse.includes('📋'))
 
