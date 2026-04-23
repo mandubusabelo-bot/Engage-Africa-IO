@@ -157,6 +157,57 @@ export async function POST(
 
     const isPaymentAlreadyConfirmed = lastAgentIndicatesPaymentDone || incomingIndicatesPaymentDone
 
+    // ── DISPATCH TRIGGER: customer sends post-payment message with order ref ──
+    const orderRefMatch = message.match(/\bORD-[A-Z0-9]+-[A-Z0-9]+\b/i)
+    if (incomingIndicatesPaymentDone && orderRefMatch) {
+      const orderRef = orderRefMatch[0].toUpperCase()
+      console.log(`[Dispatch] Payment confirmation message detected, order: ${orderRef}`)
+      try {
+        const { data: actions } = await supabaseAdmin
+          .from('agent_actions')
+          .select('*')
+          .eq('agent_id', params.id)
+          .eq('action_type', 'notify_dispatch')
+          .eq('is_enabled', true)
+          .limit(1)
+        const dispatchAction = actions?.[0]
+        const configNumbers: string = dispatchAction?.config?.dispatchNumbers || ''
+        const envNumbers: string = process.env.DISPATCH_NUMBERS || process.env.DISPATCH_NUMBER || ''
+        const dispatchNumbers = (configNumbers || envNumbers)
+          .split(/[,;\n]/).map((n: string) => n.trim()).filter(Boolean)
+
+        if (dispatchNumbers.length > 0) {
+          const contactName = message.match(/my name is (.+)/i)?.[1] || ''
+          const dispatchMsg =
+            `🚨 *Payment Confirmed — Dispatch Required*\n\n` +
+            `📦 *Order Ref:* ${orderRef}\n` +
+            `📱 *Customer Phone:* ${phone || 'N/A'}\n` +
+            (contactName ? `👤 *Name:* ${contactName}\n` : '') +
+            `💬 *Message:* ${message.slice(0, 200)}\n` +
+            `⏰ ${new Date().toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })}`
+
+          const apiUrl = process.env.EVOLUTION_API_URL
+          const apiKey = process.env.EVOLUTION_API_KEY
+          const instance = process.env.EVOLUTION_INSTANCE_NAME || process.env.EVOLUTION_INSTANCE
+          if (apiUrl && apiKey && instance) {
+            for (const num of dispatchNumbers) {
+              await fetch(`${apiUrl}/message/sendText/${instance}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', apikey: apiKey },
+                body: JSON.stringify({ number: num.replace(/\D/g, ''), textMessage: { text: dispatchMsg } })
+              }).catch(err => console.error('[Dispatch] WhatsApp failed:', err?.message))
+            }
+            console.log(`[Dispatch] Sent to: ${dispatchNumbers.join(', ')}`)
+          }
+        } else {
+          console.warn('[Dispatch] No dispatch numbers configured in action or env')
+        }
+      } catch (err: any) {
+        console.error('[Dispatch] Error sending dispatch notification:', err?.message)
+      }
+    }
+    // ── END DISPATCH TRIGGER ──────────────────────────────────────────────────
+
     // Stage 1: last agent showed an order summary, user is confirming it
     const lastAgentIsOrderSummary =
       (/x\d+.*R\d+/i.test(lastAgentContent) && /confirm/i.test(lastAgentContent)) ||
