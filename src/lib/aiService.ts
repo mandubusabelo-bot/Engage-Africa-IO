@@ -68,6 +68,32 @@ interface Contact {
 // ─── AI provider ─────────────────────────────────────────────────────────────
 
 export async function getAIResponseWithHistory(messages: Message[]): Promise<string> {
+  // ── 1. Gemini (primary — free tier, no credit issues) ───────────────────────
+  const geminiKey = process.env.GEMINI_API_KEY
+  if (geminiKey) {
+    try {
+      const { GoogleGenerativeAI } = await import('@google/generative-ai')
+      const genAI = new GoogleGenerativeAI(geminiKey)
+      const systemMsg = messages.find(m => m.role === 'system')?.content || ''
+      const model = genAI.getGenerativeModel({
+        model: process.env.GEMINI_MODEL || 'gemini-1.5-flash',
+        ...(systemMsg ? { systemInstruction: systemMsg } : {})
+      })
+
+      const chatHistory = messages
+        .filter(m => m.role !== 'system')
+        .map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }))
+
+      const chat = model.startChat({ history: chatHistory.slice(0, -1) })
+      const lastMsg = chatHistory[chatHistory.length - 1]?.parts[0]?.text || ''
+      const result = await chat.sendMessage(lastMsg)
+      return result.response.text()
+    } catch (err: any) {
+      console.error('[AI] Gemini error:', err.message)
+    }
+  }
+
+  // ── 2. OpenRouter (fallback — paid, kicks in when Gemini quota hits) ─────────
   const openrouterKey = process.env.OPENROUTER_API_KEY
   if (openrouterKey) {
     try {
@@ -94,35 +120,8 @@ export async function getAIResponseWithHistory(messages: Message[]): Promise<str
     }
   }
 
-  const geminiKey = process.env.GEMINI_API_KEY
-  if (geminiKey) {
-    try {
-      const { GoogleGenerativeAI } = await import('@google/generative-ai')
-      const genAI = new GoogleGenerativeAI(geminiKey)
-      const systemMsg = messages.find(m => m.role === 'system')?.content || ''
-      const model = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-1.5-flash' })
-      
-      // Prepend system message to first user message
-      const chatHistory = messages
-        .filter(m => m.role !== 'system')
-        .map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }))
-      
-      // Add system instruction as first message if present
-      if (systemMsg && chatHistory.length > 0) {
-        chatHistory[0].parts[0].text = `${systemMsg}\n\nUser: ${chatHistory[0].parts[0].text}`
-      }
-      
-      const chat = model.startChat({ history: chatHistory.slice(0, -1) })
-      const lastMsg = chatHistory[chatHistory.length - 1]?.parts[0]?.text || ''
-      const result = await chat.sendMessage(lastMsg)
-      return result.response.text()
-    } catch (err: any) {
-      console.error('[AI] Gemini error:', err.message)
-    }
-  }
-
   console.warn('[AI] No AI key configured')
-  return `Thank you for your message! Our team will get back to you shortly.` 
+  return `Thank you for your message! Our team will get back to you shortly.`
 }
 
 // ─── WhatsApp sender ──────────────────────────────────────────────────────────
