@@ -144,7 +144,14 @@ export async function POST(
       } else if (/\b(3|capitec)\b/.test(lc)) {
         paymentReply = `Capitec payment 📱\n\nAccount name: Miss Mokoatle\nCapitec linked number: 0625842441\n\nSend your payment then share your Proof of Payment (POP).`
 
-      } else if (/\b(1|yes|ok|sure|please|agent|pay online|payment link|process|go ahead|generate|send|link)\b/.test(lc) || lc.length <= 5) {
+      } else if (
+        /\b(1|yes|ok|sure|please|agent|pay online|payment link|process|go ahead|generate|send|link)\b/.test(lc) ||
+        lc.includes('make the payment') ||
+        lc.includes('pay for me') ||
+        lc.includes('make payment') ||
+        lc.includes('for me') ||
+        lc.length <= 5
+      ) {
         const orderDetails = extractOrderDetails(message, messageHistory)
         const persistPhoneLocal = phone || `test-${params.id}`
         if (orderDetails?.productName) {

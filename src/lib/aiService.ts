@@ -732,12 +732,65 @@ export async function handleIncomingWhatsApp(
       llmMessages.push({ role: 'user', content: message })
     }
 
+    // ── 9b. PAYMENT STATE: deterministic — same logic as chat route ──────────
+    const agentHistoryMsgs = history.filter((m: any) => m.sender === 'agent' || m.sender === 'ai' || m.sender === 'bot')
+    const lastAgentHistoryContent: string = agentHistoryMsgs[agentHistoryMsgs.length - 1]?.content || ''
+    const isAtPaymentStep =
+      lastAgentHistoryContent.includes('I can make the payment') ||
+      (lastAgentHistoryContent.includes('EFT') && lastAgentHistoryContent.includes('Capitec'))
+
+    if (isAtPaymentStep) {
+      const lc = message.toLowerCase().trim()
+      let paymentReply = ''
+
+      if (/\b(2|eft|bank transfer|bank|transfer)\b/.test(lc)) {
+        paymentReply = `EFT details 🏦\n\nBank: Capitec Bank\nAccount name: Miss Mokoatle\nAccount number: 1506845620\n\nOnce paid, please send your Proof of Payment (POP) so we can process your order.`
+      } else if (/\b(3|capitec)\b/.test(lc)) {
+        paymentReply = `Capitec payment 📱\n\nAccount name: Miss Mokoatle\nCapitec linked number: 0625842441\n\nSend your payment then share your Proof of Payment (POP).`
+      } else if (
+        /\b(1|yes|ok|sure|please|agent|pay online|payment link|process|go ahead|generate|send|link)\b/.test(lc) ||
+        lc.includes('make the payment') ||
+        lc.includes('pay for me') ||
+        lc.includes('make payment') ||
+        lc.includes('for me') ||
+        lc.length <= 5
+      ) {
+        const orderDetails = extractOrderDetails(message, history)
+        if (orderDetails?.productName) {
+          const orderResult = await createOrderFromConversation(phone, orderDetails)
+          if (orderResult.success && orderResult.paymentUrl) {
+            paymentReply = `Here is your secure payment link 🔗\n\n${orderResult.paymentUrl}\n\nClick to pay securely. Once paid we'll get your order ready!`
+          } else if (orderResult.success) {
+            paymentReply = `Your order has been placed 🎉 Ref: ${orderResult.orderRef}. Our team will contact you shortly.`
+          } else {
+            paymentReply = `I'm having trouble generating the link right now. Please try EFT to Capitec 1506845620 (Miss Mokoatle) or Capitec linked: 0625842441`
+          }
+        }
+      }
+
+      if (paymentReply) {
+        await supabaseAdmin.from('messages').insert({ agent_id: agent?.id || null, content: paymentReply, sender: 'agent', phone })
+        await sendWhatsAppReply(phone, paymentReply)
+        await emitWhatsAppMessageSent(phone, paymentReply)
+        return
+      }
+    }
+    // ── END PAYMENT STATE ─────────────────────────────────────────────────────
+
     console.log(`[Handler] Sending ${llmMessages.length} messages to LLM`)
     console.log(`[Handler] System prompt preview: ${systemPrompt.slice(0, 300)}...`)
 
     // ── 10. Get LLM response ──────────────────────────────────────────────────
-    const aiResponse = await getAIResponseWithHistory(llmMessages)
+    let aiResponse = await getAIResponseWithHistory(llmMessages)
     console.log(`[Handler] LLM response: "${aiResponse.slice(0, 100)}"`)
+
+    // Append payment options if LLM returned an order summary
+    const looksLikeOrderSummary =
+      (aiResponse.includes('Total:') || /total.*r\d+/i.test(aiResponse) || aiResponse.includes('💰')) &&
+      (aiResponse.includes('Name:') || aiResponse.includes('Cell:') || aiResponse.includes('📋'))
+    if (looksLikeOrderSummary && !aiResponse.includes('I can make the payment') && !aiResponse.includes('EFT')) {
+      aiResponse += '\n\nI can make the payment for you 💳\nAlternatively, use these other options:\n1) EFT / Bank transfer\n2) Capitec transfer'
+    }
 
     // ── 11. Save response and send ────────────────────────────────────────────
     await supabaseAdmin.from('messages').insert({
