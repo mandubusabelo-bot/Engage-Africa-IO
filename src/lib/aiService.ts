@@ -786,22 +786,29 @@ export async function handleIncomingWhatsApp(
     let aiResponse = await getAIResponseWithHistory(llmMessages)
     console.log(`[Handler] LLM response: "${aiResponse.slice(0, 100)}"`)
 
-    // Append payment options if LLM returned an order summary
+    // Interactive payment picker for ANY order summary (strips LLM text options, replaces with list message)
     const looksLikeOrderSummary =
       (aiResponse.includes('Total:') || /total.*r\d+/i.test(aiResponse) || aiResponse.includes('💰')) &&
       (aiResponse.includes('Name:') || aiResponse.includes('Cell:') || aiResponse.includes('📋'))
 
-    if (looksLikeOrderSummary && !aiResponse.includes('I can make the payment') && !aiResponse.includes('EFT')) {
-      // Save to DB with text marker so the next-turn payment state check works
-      const dbContent = aiResponse + '\n\nI can make the payment for you 💳\nAlternatively, use these other options:\n1) EFT / Bank transfer\n2) Capitec transfer'
+    if (looksLikeOrderSummary) {
+      // Strip any payment options text the LLM already appended
+      const summaryOnly = aiResponse
+        .split('\n\nI can make the payment')[0]
+        .split('\n\nAlternatively')[0]
+        .trim()
+
+      // Save to DB with text marker so next-turn payment state detection works
+      const dbContent = summaryOnly + '\n\nI can make the payment for you 💳\nAlternatively, use these other options:\n1) EFT / Bank transfer\n2) Capitec transfer'
       await supabaseAdmin.from('messages').insert({ agent_id: agent?.id || null, content: dbContent, sender: 'agent', phone })
 
-      // Send the order summary first
-      await sendWhatsAppReply(phone, aiResponse)
+      // Send clean order summary first
+      await sendWhatsAppReply(phone, summaryOnly)
 
-      // Then send the interactive list picker (falls back to text if unsupported)
-      const interactiveResult = await sendPaymentOptionsInteractive(phone, aiResponse)
+      // Send the interactive list picker — fallback to text if unsupported
+      const interactiveResult = await sendPaymentOptionsInteractive(phone, summaryOnly)
       if (!interactiveResult.success) {
+        console.warn('[Payment] Interactive list failed, sending text fallback:', interactiveResult.error)
         await sendWhatsAppReply(phone, 'I can make the payment for you 💳\nAlternatively, use these other options:\n1) EFT / Bank transfer\n2) Capitec transfer')
       }
 
