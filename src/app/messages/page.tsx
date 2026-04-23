@@ -112,8 +112,8 @@ export default function Messages() {
 
   const loadConversationMessages = (phone: string, msgs: any[]) => {
     const formattedMessages: Message[] = msgs.map(msg => {
-      // AI messages have agent_id or fromMe=true or sender='ai'/'assistant'/'bot'
-      const isAgent = msg.agent_id || msg.fromMe || ['ai', 'assistant', 'bot', 'agent'].includes(msg.sender?.toLowerCase())
+      // Classify strictly: agent/ai/bot or agent_id present => agent; otherwise user
+      const isAgent = Boolean(msg.agent_id) || ['ai', 'assistant', 'bot', 'agent'].includes((msg.sender || '').toLowerCase())
       return {
         id: msg.id,
         text: msg.content,
