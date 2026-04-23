@@ -5,6 +5,7 @@ import {
   runAgentOrchestrator,
   type OrchestratorMessage
 } from '@/lib/agentOrchestrator'
+import { extractOrderDetails, createOrderFromConversation } from '@/lib/orderService'
 
 export async function POST(
   request: NextRequest,
@@ -124,6 +125,67 @@ export async function POST(
 
     orchestratorMessages.push({ role: 'user', content: message })
 
+    // ── PAYMENT STATE: deterministic handler — more reliable than LLM tool calls ──
+    const agentMsgs = messageHistory.filter((m: any) =>
+      m.sender === 'agent' || m.sender === 'ai' || m.sender === 'bot'
+    )
+    const lastAgentContent: string = agentMsgs[agentMsgs.length - 1]?.content || ''
+    const isAtPaymentOptionsStep =
+      lastAgentContent.includes('I can make the payment') ||
+      (lastAgentContent.includes('EFT') && lastAgentContent.includes('Capitec'))
+
+    if (isAtPaymentOptionsStep) {
+      const lc = message.toLowerCase().trim()
+      let paymentReply = ''
+
+      if (/\b(2|eft|bank transfer|bank|transfer)\b/.test(lc)) {
+        paymentReply = `EFT details 🏦\n\nBank: Capitec Bank\nAccount name: Miss Mokoatle\nAccount number: 1506845620\n\nOnce paid, please send your Proof of Payment (POP) so we can process your order.`
+
+      } else if (/\b(3|capitec)\b/.test(lc)) {
+        paymentReply = `Capitec payment 📱\n\nAccount name: Miss Mokoatle\nCapitec linked number: 0625842441\n\nSend your payment then share your Proof of Payment (POP).`
+
+      } else if (/\b(1|yes|ok|sure|please|agent|pay online|payment link|process|go ahead|generate|send|link)\b/.test(lc) || lc.length <= 5) {
+        const orderDetails = extractOrderDetails(message, messageHistory)
+        const persistPhoneLocal = phone || `test-${params.id}`
+        if (orderDetails?.productName) {
+          const orderResult = await createOrderFromConversation(persistPhoneLocal, orderDetails)
+          if (orderResult.success && orderResult.paymentUrl) {
+            paymentReply = `Here is your secure payment link 🔗\n\n${orderResult.paymentUrl}\n\nClick to pay securely. Once paid we'll get your order ready!`
+          } else if (orderResult.success) {
+            paymentReply = `Your order has been placed 🎉 Ref: ${orderResult.orderRef}. Our team will contact you with payment details shortly.`
+          } else {
+            paymentReply = `I'm having trouble generating the link right now. Please try EFT to Capitec 1506845620 (Miss Mokoatle) or Capitec linked: 0625842441`
+          }
+        } else {
+          paymentReply = `I couldn't find your full order details in our chat. Please confirm: product, name, phone and collection point.`
+        }
+      }
+
+      if (paymentReply) {
+        const persistedPhoneLocal = phone || `test-ui-${params.id}`
+        await supabaseAdmin.from('messages').insert({
+          agent_id: params.id,
+          content: paymentReply,
+          sender: 'agent',
+          phone: persistedPhoneLocal,
+          conversation_id: conversationId
+        })
+        if (phone && !testMode) {
+          try {
+            await fetch(`${process.env.NEXT_PUBLIC_APP_URL || ''}/api/whatsapp/send`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ phone, message: paymentReply })
+            })
+          } catch (err: any) {
+            console.error('[AgentChat] WhatsApp send error:', err.message)
+          }
+        }
+        return NextResponse.json({ success: true, response: paymentReply, agent: agent.name })
+      }
+    }
+    // ── END PAYMENT STATE ────────────────────────────────────────────────────────
+
     // LLM caller: OpenRouter first, Gemini fallback
     const callLLM = async (msgs: OrchestratorMessage[]): Promise<string> => {
       const openrouterKey = process.env.OPENROUTER_API_KEY
@@ -205,6 +267,18 @@ export async function POST(
     )
 
     let aiResponse = orchestrationResult.reply
+
+    // ── ORDER SUMMARY DETECTION: append exact payment options if LLM returned a summary ──
+    const looksLikeOrderSummary =
+      !orchestrationResult.orderCreated &&
+      (aiResponse.includes('Total:') || /total.*r\d+/i.test(aiResponse) || aiResponse.includes('💰')) &&
+      (aiResponse.includes('Name:') || aiResponse.includes('Cell:') || aiResponse.includes('📋'))
+    if (looksLikeOrderSummary &&
+        !aiResponse.includes('I can make the payment') &&
+        !aiResponse.includes('EFT')) {
+      aiResponse += '\n\nI can make the payment for you 💳\nAlternatively, use these other options:\n1) EFT / Bank transfer\n2) Capitec transfer'
+    }
+    // ── END ORDER SUMMARY DETECTION ──────────────────────────────────────────────
 
     if (!aiResponse || !aiResponse.trim()) {
       aiResponse = `Sorry, I'm having trouble processing that right now. Please try again or type "menu" to see what I can help with.`
