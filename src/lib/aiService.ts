@@ -30,7 +30,8 @@ import {
   checkBookingsForPhone,
   checkOrderStatus,
   searchAgentProducts,
-  updateContactFromOrder
+  updateContactFromOrder,
+  extractAndUpdateContactInfo
 } from './orderService'
 import { runAgentActions } from './agentActions'
 import { notify } from './services/internalNotifier'
@@ -706,6 +707,9 @@ export async function handleIncomingWhatsApp(
       .limit(30)
 
     const history = (recentMessages || []).reverse()
+
+    // ── 7b. Extract and update contact info (name, email, phone) from any message ───────
+    await extractAndUpdateContactInfo(phone, message, history)
 
     // ── 8. Inject contextual data (bookings, orders, commerce, action results) ──────────
     systemPrompt = await injectBookingContext(systemPrompt, message, phone, history)

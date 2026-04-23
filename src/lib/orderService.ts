@@ -68,6 +68,7 @@ export interface OrderDetails {
   quantity?: number
   customerName: string
   customerPhone: string
+  customerEmail?: string
   deliveryMethod: 'pep' | 'mall' | 'courier'
   deliveryLocation: string
   pepStoreCode?: string
@@ -559,6 +560,7 @@ export function extractOrderDetails(message: string, history: any[]): OrderDetai
   // Extract customer info across ALL user messages
   let customerName = ''
   let customerPhone = ''
+  let customerEmail = ''
   let deliveryLocation = ''
   let pepStoreCode = ''
   let deliveryMethod: 'pep' | 'mall' | 'courier' = 'pep'
@@ -595,6 +597,16 @@ export function extractOrderDetails(message: string, history: any[]): OrderDetai
     const phoneMatch = msg.match(/(\+?27\d{9}|0[6-8]\d{8})/)
     if (phoneMatch) {
       customerPhone = phoneMatch[1].replace(/\s+/g, '')
+      break
+    }
+  }
+
+  // Extract email — scan all messages for email patterns
+  const emailPattern = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/
+  for (const msg of userMessages) {
+    const emailMatch = msg.match(emailPattern)
+    if (emailMatch) {
+      customerEmail = emailMatch[0].toLowerCase()
       break
     }
   }
@@ -646,20 +658,17 @@ export function extractOrderDetails(message: string, history: any[]): OrderDetai
     }
   }
 
-  // Return partial extraction once purchase intent + product are found.
-  // Missing fields are handled by getMissingInfo() upstream.
   return {
-    productName: productName.trim(),
+    productName,
     quantity,
-    customerName: customerName.trim(),
+    customerName,
     customerPhone,
+    customerEmail,
     deliveryMethod,
-    deliveryLocation: deliveryLocation.trim(),
+    deliveryLocation,
     pepStoreCode
   }
 }
-
-// ===== BOOKING FUNCTIONS =====
 
 interface BookingResult {
   success: boolean
@@ -906,6 +915,11 @@ export async function updateContactFromOrder(phone: string, details: OrderDetail
       updates.postal_code = details.pepStoreCode
     }
 
+    // Update email if we have it
+    if (details.customerEmail && !contact.email) {
+      updates.email = details.customerEmail
+    }
+
     // Only update if we have changes
     if (Object.keys(updates).length > 1) { // > 1 because updated_at is always there
       const { error } = await supabaseAdmin
@@ -921,5 +935,92 @@ export async function updateContactFromOrder(phone: string, details: OrderDetail
     }
   } catch (error) {
     console.error('[Contact Update] Error:', error)
+  }
+}
+
+// Extract and update contact info from ANY message (runs on every message, not just orders)
+export async function extractAndUpdateContactInfo(phone: string, message: string, history: any[]): Promise<void> {
+  try {
+    // Combine all user messages
+    const userMessages = history
+      .filter((m: any) => m.sender === 'user' || m.sender === 'contact')
+      .map((m: any) => m.content)
+    userMessages.push(message)
+
+    // Find contact
+    const { data: contacts } = await supabaseAdmin
+      .from('contacts')
+      .select('id, name, phone, email')
+      .ilike('phone', `%${phone.replace(/@.*/, '').replace(/\D/g, '')}%`)
+      .limit(1)
+
+    const contact = contacts?.[0]
+    if (!contact) return
+
+    const updates: any = {}
+
+    // Extract name — check for explicit name patterns
+    const namePatterns = [
+      /(?:my\s+name\s+is|name\s+is|i\s+am|i'm|call\s+me)\s+([a-z]+(?:\s+[a-z]+){0,2})/i,
+      /(?:name)[:\s]+([a-z]+(?:\s+[a-z]+){0,2})/i,
+    ]
+    for (const msg of userMessages) {
+      for (const pattern of namePatterns) {
+        const match = msg.match(pattern)
+        if (match && match[1] && match[1].trim().length > 2) {
+          const extractedName = match[1].trim().split(/\s+/)
+            .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+            .join(' ')
+          // Only update if current name is empty/generic
+          if (!contact.name || contact.name.includes('@') || contact.name.length < 3) {
+            updates.name = extractedName
+          }
+          break
+        }
+      }
+      if (updates.name) break
+    }
+
+    // Extract email
+    const emailPattern = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/
+    for (const msg of userMessages) {
+      const emailMatch = msg.match(emailPattern)
+      if (emailMatch && !contact.email) {
+        updates.email = emailMatch[0].toLowerCase()
+        break
+      }
+    }
+
+    // Extract phone (alternate number)
+    const phonePattern = /(\+?27\d{9}|0[6-8]\d{8})/
+    for (const msg of userMessages) {
+      const phoneMatch = msg.match(phonePattern)
+      if (phoneMatch) {
+        const extractedPhone = phoneMatch[1].replace(/\s+/g, '')
+        const existingClean = (contact.phone || '').replace(/\D/g, '')
+        if (extractedPhone.replace(/\D/g, '') !== existingClean && !existingClean.includes(extractedPhone)) {
+          // Store alternate phone in metadata or append to existing
+          updates.phone = extractedPhone
+        }
+        break
+      }
+    }
+
+    // Apply updates if any
+    if (Object.keys(updates).length > 0) {
+      updates.updated_at = new Date().toISOString()
+      const { error } = await supabaseAdmin
+        .from('contacts')
+        .update(updates)
+        .eq('id', contact.id)
+
+      if (error) {
+        console.error('[Contact Info Update] Failed:', error)
+      } else {
+        console.log('[Contact Info Update] Updated contact:', contact.id, Object.keys(updates))
+      }
+    }
+  } catch (error) {
+    console.error('[Contact Info Update] Error:', error)
   }
 }
