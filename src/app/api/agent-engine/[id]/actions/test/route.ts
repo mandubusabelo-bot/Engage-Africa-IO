@@ -34,7 +34,10 @@ export async function POST(
     log('info', `Action type: ${action.action_type}, enabled: ${action.is_enabled}`)
     log('info', `Trigger condition: "${action.trigger_condition || '(none)'}"`)
 
-    // Check trigger match
+    // notify_dispatch fires on ORD- ref in message, not a text trigger — skip trigger check
+    const isDispatchAction = action.action_type === 'notify_dispatch'
+
+    // Check trigger match (skipped for notify_dispatch)
     const condition = (action.trigger_condition || '').trim().toLowerCase()
     const message = (sampleMessage || 'I want to buy umuthi wenhlanhla').toLowerCase()
 
@@ -46,11 +49,14 @@ export async function POST(
     const matchedToken = triggerTokens.find((token: string) => token !== '*' && message.includes(token))
     const shouldFire = !condition || wildcard || Boolean(matchedToken)
 
-    if (!shouldFire) {
+    if (!shouldFire && !isDispatchAction) {
       log('warn', `Trigger condition "${condition}" NOT matched in sample message`)
       log('warn', `Checked tokens: ${triggerTokens.join(', ') || '(none)'}`)
       log('warn', 'Action would NOT fire for this message')
       return NextResponse.json({ success: true, triggered: false, logs })
+    }
+    if (isDispatchAction) {
+      log('info', 'notify_dispatch fires on payment message with ORD- ref — trigger condition not used')
     }
 
     if (!condition) {
@@ -249,94 +255,70 @@ export async function POST(
     }
 
     if (action.action_type === 'notify_dispatch') {
-      const notificationType = mergedConfig.notificationType || 'dispatch_pending_order'
+      // Read dispatch numbers directly from action config
+      const configNumbers: string = mergedConfig.dispatchNumbers || mergedConfig.recipients || ''
+      const envNumbers: string = process.env.DISPATCH_NUMBERS || process.env.DISPATCH_NUMBER || ''
+      log('info', `Config dispatchNumbers: "${configNumbers}"`)
+      log('info', `Env DISPATCH_NUMBERS: "${envNumbers}"`)
 
-      log('info', `Looking up contact for phone: ${phone}`)
+      const dispatchNumbers = (configNumbers || envNumbers)
+        .split(/[,;\n]/).map((n: string) => n.trim()).filter(Boolean)
 
-      // Get contact
-      const { data: contact } = await supabaseAdmin
-        .from('contacts')
-        .select('id, name')
-        .eq('phone', phone)
-        .single()
-
-      const { data: conversation } = await supabaseAdmin
-        .from('conversations')
-        .select('id')
-        .eq('contact_id', contact?.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single()
-
-      // Get order if specified
-      let order = null
-      const orderId = mergedConfig.orderId
-      if (orderId) {
-        const { data: orderData } = await supabaseAdmin
-          .from('orders')
-          .select('*')
-          .eq('id', orderId)
-          .single()
-        order = orderData
-        if (order) log('info', `Found order: ${order.id}`)
+      if (dispatchNumbers.length === 0) {
+        log('error', 'No dispatch numbers found — add numbers to the "Dispatch Numbers" field on this action, or set DISPATCH_NUMBERS env var')
+        return NextResponse.json({ success: false, triggered: true, logs })
       }
 
-      // Execute notification
-      log('info', `Sending WhatsApp notification to dispatch team (${notificationType})...`)
-      try {
-        if (notificationType === 'dispatch_new_order' && order) {
-          await notify('dispatch_new_order', {
-            'contact.name': contact?.name || phone,
-            'contact.phone': phone,
-            'order.productName': order.product_name || 'Products',
-            'order.qty': String(order.quantity || 1),
-            'order.price': order.price?.toFixed(2) || '0.00',
-            'order.totalAmount': order.total_amount?.toFixed(2) || '0.00',
-            'order.collectionDetails': order.collection_details || 'N/A',
-            'order.contactName': order.contact_name || contact?.name || phone,
-            'dispatch.timestamp': new Date().toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })
-          }, { role: 'dispatch', conversationId: conversation?.id, orderId: order.id })
-        } else if (notificationType === 'pop_received' && order) {
-          await notify('pop_received_customer', {}, { conversationId: conversation?.id, contactId: contact?.id })
-          await notify('dispatch_new_order', {
-            'contact.name': contact?.name || phone,
-            'contact.phone': phone,
-            'order.productName': order.product_name || 'Products',
-            'order.qty': String(order.quantity || 1),
-            'order.price': order.price?.toFixed(2) || '0.00',
-            'order.totalAmount': order.total_amount?.toFixed(2) || '0.00',
-            'order.collectionDetails': order.collection_details || 'N/A',
-            'order.contactName': order.contact_name || contact?.name || phone,
-            'dispatch.timestamp': new Date().toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })
-          }, { role: 'dispatch', conversationId: conversation?.id, orderId: order.id })
-        } else {
-          // Default pending order notification
-          await notify('dispatch_pending_order', {
-            'contact.name': contact?.name || phone,
-            'contact.phone': phone,
-            'order.productName': order?.product_name || 'Products',
-            'order.qty': String(order?.quantity || 1),
-            'order.price': order?.price?.toFixed(2) || '0.00',
-            'order.totalAmount': order?.total_amount?.toFixed(2) || '0.00',
-            'order.collectionDetails': order?.collection_details || 'N/A'
-          }, { role: 'dispatch', conversationId: conversation?.id, orderId: order?.id })
+      log('success', `Found ${dispatchNumbers.length} dispatch number(s): ${dispatchNumbers.join(', ')}`)
+
+      // Send test WhatsApp directly via Evolution API
+      const apiUrl = process.env.EVOLUTION_API_URL
+      const apiKey = process.env.EVOLUTION_API_KEY
+      const instance = process.env.EVOLUTION_INSTANCE_NAME || process.env.EVOLUTION_INSTANCE
+
+      log('info', `Evolution API URL: ${apiUrl || '(NOT SET)'}`)
+      log('info', `Evolution Instance: ${instance || '(NOT SET)'}`)
+      log('info', `Evolution API Key: ${apiKey ? '***set***' : '(NOT SET)'}`)
+
+      if (!apiUrl || !apiKey || !instance) {
+        log('error', 'Evolution API env vars missing (EVOLUTION_API_URL, EVOLUTION_API_KEY, EVOLUTION_INSTANCE_NAME)')
+        return NextResponse.json({ success: false, triggered: true, logs })
+      }
+
+      const testMsg =
+        `🧪 *Dispatch Test Message*\n\n` +
+        `📦 *Order Ref:* ORD-TEST-0000\n` +
+        `📱 *Customer Phone:* ${phone}\n` +
+        `💬 *Note:* This is a test from the Actions page\n` +
+        `⏰ ${new Date().toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })}`
+
+      let allSent = true
+      for (const num of dispatchNumbers) {
+        const cleanNum = num.replace(/\D/g, '')
+        log('info', `Sending to ${cleanNum}...`)
+        try {
+          const res = await fetch(`${apiUrl}/message/sendText/${instance}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', apikey: apiKey },
+            body: JSON.stringify({ number: cleanNum, textMessage: { text: testMsg } })
+          })
+          const body = await res.text()
+          if (res.ok) {
+            log('success', `WhatsApp sent to ${cleanNum} — HTTP ${res.status}`)
+          } else {
+            log('error', `Failed to send to ${cleanNum} — HTTP ${res.status}: ${body.slice(0, 200)}`)
+            allSent = false
+          }
+        } catch (err: any) {
+          log('error', `Network error sending to ${cleanNum}: ${err.message}`)
+          allSent = false
         }
-
-        log('success', `WhatsApp notification sent to dispatch team`)
-
-        // Also log to messages
-        await supabaseAdmin.from('messages').insert({
-          agent_id: agentId,
-          sender: 'system',
-          phone,
-          content: `[Test] ${notificationType} notification sent to dispatch`
-        })
-      } catch (notifyErr: any) {
-        log('error', `Failed to send WhatsApp: ${notifyErr.message}`)
       }
 
-      log('success', `Test complete: Dispatch notified`)
-      return NextResponse.json({ success: true, triggered: true, logs })
+      if (allSent) {
+        log('success', 'All dispatch WhatsApp messages sent successfully!')
+      }
+      return NextResponse.json({ success: allSent, triggered: true, logs })
     }
 
     // Site connectivity test (bonus diagnostic)
