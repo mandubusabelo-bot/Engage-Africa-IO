@@ -56,7 +56,7 @@ export default function Messages() {
         const latestMessageNameByPhone = new Map<string, string>()
         
         response.data.forEach((msg: any) => {
-          const phone = msg.phone || 'unknown'
+          const phone = displayPhone(msg.phone) || 'unknown'
           if (!messagesByPhone[phone]) {
             messagesByPhone[phone] = []
           }

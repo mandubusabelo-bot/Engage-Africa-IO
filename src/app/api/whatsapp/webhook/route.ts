@@ -126,24 +126,12 @@ export async function POST(request: NextRequest) {
       }
 
       if (!fromMe && phone && text) {
-        // Save inbound message to DB
-        const { error: insertError } = await (supabaseAdmin.from('messages') as any).insert({
-          agent_id: null,
-          content: text,
-          sender: 'user',
-          phone
-        })
-
-        if (insertError) {
-          console.error('[Webhook] Failed to save message:', insertError)
-        } else {
-          console.log('[Webhook] Message saved to DB')
-        }
-
-        console.log(`[Webhook] ✅ WhatsApp message from ${pushName || phone}: ${text}`)
+        const phoneCleanText = phone.replace('@s.whatsapp.net', '').replace('@c.us', '')
+        console.log(`[Webhook] ✅ WhatsApp message from ${pushName || phoneCleanText}: ${text}`)
 
         // Process and reply (non-blocking - don't await so webhook returns fast)
-        handleIncomingWhatsApp(phone, text, pushName).catch(err => {
+        // handleIncomingWhatsApp saves the message itself — do NOT save here too
+        handleIncomingWhatsApp(phoneCleanText, text, pushName).catch(err => {
           console.error('[Webhook] AI handler error:', err.message)
           console.error('[Webhook] AI handler stack:', err.stack)
         })

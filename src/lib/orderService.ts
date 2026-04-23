@@ -870,12 +870,13 @@ export async function updateContactFromOrder(phone: string, details: OrderDetail
       updates.name = details.customerName
     }
 
-    // Update phone if we have a cleaner version
+    // Update phone if we have a cleaner version (store clean number without JID suffix)
     if (details.customerPhone && details.customerPhone.length >= 10) {
-      const formattedPhone = details.customerPhone.startsWith('0') 
-        ? `27${details.customerPhone.substring(1)}@s.whatsapp.net`
-        : `${details.customerPhone}@s.whatsapp.net`
-      if (formattedPhone !== contact.phone) {
+      const formattedPhone = details.customerPhone.startsWith('0')
+        ? `27${details.customerPhone.substring(1)}`
+        : details.customerPhone.replace(/\D/g, '')
+      const existingClean = (contact.phone || '').replace('@s.whatsapp.net', '').replace('@c.us', '').replace(/\D/g, '')
+      if (formattedPhone !== existingClean) {
         updates.phone = formattedPhone
       }
     }

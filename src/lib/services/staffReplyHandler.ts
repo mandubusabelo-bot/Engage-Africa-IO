@@ -31,7 +31,7 @@ export async function handleStaffReply(payload: any) {
     await supabaseAdmin
       .from('orders')
       .update({ status: 'acknowledged_by_dispatch', updated_at: new Date().toISOString() })
-      .eq('order_ref', orderRef)
+      .eq('order_reference', orderRef)
 
     // Reply to staff
     await notify('staff_reply_received_ack', { 'order.ref': orderRef }, { role: 'dispatch' })
@@ -50,7 +50,7 @@ export async function handleStaffReply(payload: any) {
     const { data: order } = await supabaseAdmin
       .from('orders')
       .select('id, conversation_id, contact_id')
-      .eq('order_ref', orderRef)
+      .eq('order_reference', orderRef)
       .single()
 
     if (!order) {
@@ -91,7 +91,7 @@ export async function handleStaffReply(payload: any) {
     const { data: order } = await supabaseAdmin
       .from('orders')
       .select('id, conversation_id')
-      .eq('order_ref', orderRef)
+      .eq('order_reference', orderRef)
       .single()
 
     if (order) {

@@ -462,7 +462,8 @@ function buildSystemPrompt(agent: Agent, contactName: string): string {
 
   // Fallback
   if (agent?.fallback_message) {
-    prompt += `\n\nIf you cannot help: ${agent.fallback_message}` 
+    const fallback = agent.fallback_message.replace(/\{\{contact\.name\}\}/g, contactName)
+    prompt += `\n\nIf you cannot help: ${fallback}` 
   }
 
   prompt += `\n\nYou are speaking with ${contactName}.` 
