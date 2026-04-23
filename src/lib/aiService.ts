@@ -80,7 +80,8 @@ export async function getAIResponseWithHistory(messages: Message[]): Promise<str
         },
         body: JSON.stringify({
           model: process.env.OPENROUTER_MODEL || 'google/gemini-2.0-flash-exp:free',
-          messages
+          messages,
+          max_tokens: Number(process.env.OPENROUTER_MAX_TOKENS || '700')
         })
       })
       const data = await response.json()
@@ -99,7 +100,7 @@ export async function getAIResponseWithHistory(messages: Message[]): Promise<str
       const { GoogleGenerativeAI } = await import('@google/generative-ai')
       const genAI = new GoogleGenerativeAI(geminiKey)
       const systemMsg = messages.find(m => m.role === 'system')?.content || ''
-      const model = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.0-flash' })
+      const model = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-1.5-flash' })
       
       // Prepend system message to first user message
       const chatHistory = messages
