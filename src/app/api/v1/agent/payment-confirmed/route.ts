@@ -10,7 +10,7 @@ async function sendWhatsAppDirect(to: string, text: string) {
   await fetch(`${apiUrl}/message/sendText/${instance}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'apikey': apiKey },
-    body: JSON.stringify({ number: phone, textMessage: { text } })
+    body: JSON.stringify({ number: phone, text })
   }).catch(err => console.error('[PaymentConfirmed] WhatsApp send failed:', err?.message))
 }
 

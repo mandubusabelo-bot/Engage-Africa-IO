@@ -795,7 +795,7 @@ export async function handleIncomingWhatsApp(
               await fetch(`${apiUrl}/message/sendText/${instance}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', apikey: apiKey },
-                body: JSON.stringify({ number: num.replace(/\D/g, ''), textMessage: { text: dispatchMsg } })
+                body: JSON.stringify({ number: num.replace(/\D/g, ''), text: dispatchMsg })
               }).catch((err: any) => console.error('[Dispatch] WhatsApp failed:', err?.message))
             }
             console.log(`[Dispatch] Sent to: ${dispatchNumbers.join(', ')}`)

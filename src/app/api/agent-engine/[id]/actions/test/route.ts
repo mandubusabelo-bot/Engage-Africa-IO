@@ -300,7 +300,7 @@ export async function POST(
           const res = await fetch(`${apiUrl}/message/sendText/${instance}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', apikey: apiKey },
-            body: JSON.stringify({ number: cleanNum, textMessage: { text: testMsg } })
+            body: JSON.stringify({ number: cleanNum, text: testMsg })
           })
           const body = await res.text()
           if (res.ok) {
