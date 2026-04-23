@@ -77,7 +77,8 @@ export async function getAIResponseWithHistory(messages: Message[]): Promise<str
       const genAI = new GoogleGenerativeAI(geminiKey)
       const systemMsg = messages.find(m => m.role === 'system')?.content || ''
       const model = genAI.getGenerativeModel({
-        model: process.env.GEMINI_MODEL || 'gemini-1.5-flash',
+        // v1-compatible model name; -latest can 404 on v1
+        model: process.env.GEMINI_MODEL || 'gemini-1.5-flash-001',
         ...(systemMsg ? { systemInstruction: systemMsg } : {})
       })
 
