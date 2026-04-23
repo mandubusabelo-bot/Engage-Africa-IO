@@ -112,8 +112,8 @@ export default function Messages() {
 
   const loadConversationMessages = (phone: string, msgs: any[]) => {
     const formattedMessages: Message[] = msgs.map(msg => {
-      // Classify strictly: agent/ai/bot or agent_id present => agent; otherwise user
-      const isAgent = Boolean(msg.agent_id) || ['ai', 'assistant', 'bot', 'agent'].includes((msg.sender || '').toLowerCase())
+      // Classify by sender field only — agent_id is set on all rows including customer messages
+      const isAgent = ['ai', 'assistant', 'bot', 'agent'].includes((msg.sender || '').toLowerCase())
       return {
         id: msg.id,
         text: msg.content,
