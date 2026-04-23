@@ -1,6 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-server'
 
+async function sendWhatsAppDirect(to: string, text: string) {
+  const apiUrl = process.env.EVOLUTION_API_URL
+  const apiKey = process.env.EVOLUTION_API_KEY
+  const instance = process.env.EVOLUTION_INSTANCE_NAME || process.env.EVOLUTION_INSTANCE
+  if (!apiUrl || !apiKey || !instance) return
+  const phone = to.replace(/\D/g, '')
+  await fetch(`${apiUrl}/message/sendText/${instance}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'apikey': apiKey },
+    body: JSON.stringify({ number: phone, textMessage: { text } })
+  }).catch(err => console.error('[PaymentConfirmed] WhatsApp send failed:', err?.message))
+}
+
 export async function POST(request: NextRequest) {
   try {
     // Verify agent API secret
@@ -13,165 +26,149 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const {
       event,
+      orderRef,
       orderId,
-      conversationId,
-      contactId,
-      contactName,
+      customerPhone,
+      customerName,
       totalAmount,
+      itemSummary,
+      collectionPoint,
       paymentStatus,
-      items,
-      deliveryAddress
+      conversationId: providedConvId,
     } = body
 
-    console.log(`[Payment Webhook] Received ${event} for order ${orderId}`)
+    console.log(`[Payment Webhook] Received ${event} for order ${orderRef || orderId}`)
 
-    if (!conversationId) {
-      console.error('[Payment Webhook] No conversation ID provided')
-      return NextResponse.json({ success: false, error: 'No conversation ID' }, { status: 400 })
+    // ── Resolve conversation (by ID or by phone fallback) ─────────────────────
+    let conversation: any = null
+
+    if (providedConvId) {
+      const { data } = await supabaseAdmin
+        .from('conversations')
+        .select('*')
+        .eq('id', providedConvId)
+        .single()
+      conversation = data
     }
 
-    // Find the conversation
-    const { data: conversation, error: convError } = await supabaseAdmin
-      .from('conversations')
-      .select('*')
-      .eq('id', conversationId)
-      .single()
-
-    if (convError || !conversation) {
-      console.error('[Payment Webhook] Conversation not found:', conversationId)
-      return NextResponse.json({ success: false, error: 'Conversation not found' }, { status: 404 })
+    if (!conversation && customerPhone) {
+      const normalised = customerPhone.replace(/\D/g, '')
+      const { data } = await supabaseAdmin
+        .from('conversations')
+        .select('*')
+        .or(`phone.eq.${normalised},phone.eq.+${normalised}`)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single()
+      conversation = data
     }
 
-    // Get agent settings for message templates
-    const { data: agent } = await supabaseAdmin
-      .from('agents')
-      .select('order_confirmed_template, payment_failed_template')
-      .eq('id', conversation.agent_id)
-      .single()
+    if (!conversation) {
+      console.warn('[Payment Webhook] Conversation not found — skipping message insert')
+    }
+
+    // ── Get agent + actions ────────────────────────────────────────────────────
+    const agentId = conversation?.agent_id
+    let agent: any = null
+    let dispatchAction: any = null
+
+    if (agentId) {
+      const { data: agentRow } = await supabaseAdmin
+        .from('agents')
+        .select('order_confirmed_template, payment_failed_template')
+        .eq('id', agentId)
+        .single()
+      agent = agentRow
+
+      // Read notify_dispatch action config for dispatch numbers
+      const { data: actions } = await supabaseAdmin
+        .from('agent_actions')
+        .select('*')
+        .eq('agent_id', agentId)
+        .eq('action_type', 'notify_dispatch')
+        .eq('is_enabled', true)
+        .limit(1)
+      dispatchAction = actions?.[0] || null
+    }
+
+    // ── Resolve dispatch numbers: action config → env fallback ────────────────
+    const configNumbers: string = dispatchAction?.config?.dispatchNumbers || ''
+    const envNumbers: string = process.env.DISPATCH_NUMBERS || process.env.DISPATCH_NUMBER || ''
+    const dispatchNumbers = (configNumbers || envNumbers)
+      .split(/[,;\n]/)
+      .map((n: string) => n.trim())
+      .filter(Boolean)
+
+    console.log(`[Payment Webhook] Dispatch numbers: ${dispatchNumbers.join(', ') || 'none'}`)
 
     if (event === 'payment_confirmed' && paymentStatus === 'COMPLETE') {
-      // Payment successful
-      console.log(`[Payment Webhook] Payment confirmed for order ${orderId}`)
+      console.log(`[Payment Webhook] Payment confirmed for order ${orderRef}`)
 
-      // Add internal comment to conversation
-      await supabaseAdmin
-        .from('messages')
-        .insert({
-          conversation_id: conversationId,
-          content: `💰 Payment confirmed for Order #${orderId} — R${totalAmount}. Dispatch notification sent to team.`,
-          sender: 'system',
-          phone: conversation.phone
-        })
+      // ── Customer confirmation message ──────────────────────────────────────
+      const firstName = (customerName || 'there').split(' ')[0]
+      let confirmationMessage = agent?.order_confirmed_template ||
+        `✅ *Payment Confirmed!*\n\nHi ${firstName}! Your payment of *R${totalAmount}* has been received.\n\n📦 *Order:* ${orderRef}\n🛍️ *Items:* ${itemSummary || 'Your order'}\n${collectionPoint ? `📍 *Collection:* ${collectionPoint}\n` : ''}\nOur team will prepare and dispatch within 1–3 business days. Thank you! 🌿`
 
-      // Send confirmation message to customer
-      let confirmationMessage = agent?.order_confirmed_template || 
-        `Your payment is confirmed! 🎉\n\nOrder #${orderId} has been sent to our dispatch team.\nDelivery to: ${deliveryAddress?.street}, ${deliveryAddress?.city}\n\nWe'll be in touch with tracking info. Thank you for your order!`
-
-      // Replace template variables
       confirmationMessage = confirmationMessage
-        .replace(/\{\{orderId\}\}/g, orderId)
-        .replace(/\{\{totalAmount\}\}/g, totalAmount.toString())
-        .replace(/\{\{deliveryAddress\.street\}\}/g, deliveryAddress?.street || '')
-        .replace(/\{\{deliveryAddress\.city\}\}/g, deliveryAddress?.city || '')
-        .replace(/\{\{estimatedDispatch\}\}/g, '1-2 business days')
+        .replace(/\{\{orderId\}\}/g, orderRef || orderId || '')
+        .replace(/\{\{orderRef\}\}/g, orderRef || '')
+        .replace(/\{\{totalAmount\}\}/g, String(totalAmount || ''))
+        .replace(/\{\{estimatedDispatch\}\}/g, '1–3 business days')
+        .replace(/\{\{customerName\}\}/g, customerName || '')
+        .replace(/\{\{itemSummary\}\}/g, itemSummary || '')
+        .replace(/\{\{collectionPoint\}\}/g, collectionPoint || '')
 
-      await supabaseAdmin
-        .from('messages')
-        .insert({
-          conversation_id: conversationId,
+      // Save to conversation + send via WhatsApp
+      if (conversation) {
+        await supabaseAdmin.from('messages').insert({
+          conversation_id: conversation.id,
           content: confirmationMessage,
           sender: 'agent',
           phone: conversation.phone,
-          agent_id: conversation.agent_id
+          agent_id: agentId
         })
-
-      // Send via WhatsApp
-      try {
-        const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
-        await fetch(`${siteUrl}/api/whatsapp/send`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            phone: conversation.phone,
-            message: confirmationMessage
-          })
-        })
-      } catch (error) {
-        console.error('[Payment Webhook] Failed to send WhatsApp message:', error)
+      }
+      if (customerPhone) {
+        await sendWhatsAppDirect(customerPhone, confirmationMessage)
+        console.log('[Payment Webhook] Customer WhatsApp sent to', customerPhone)
       }
 
-      // Update contact fields if auto-update is enabled
-      if (contactId && deliveryAddress) {
-        const { data: agentSettings } = await supabaseAdmin
-          .from('agents')
-          .select('auto_update_contact_address, auto_update_contact_email')
-          .eq('id', conversation.agent_id)
-          .single()
+      // ── Dispatch notification ──────────────────────────────────────────────
+      if (dispatchNumbers.length > 0) {
+        const dispatchMsg =
+          `🚨 *New Order — Payment Confirmed*\n\n` +
+          `👤 *Customer:* ${customerName || 'N/A'}\n` +
+          `📱 *Phone:* ${customerPhone || 'N/A'}\n` +
+          `📦 *Ref:* ${orderRef || orderId}\n` +
+          `🛍️ *Items:* ${itemSummary || 'See order'}\n` +
+          (collectionPoint ? `📍 *Collection:* ${collectionPoint}\n` : '') +
+          `💰 *Total:* R${totalAmount}\n` +
+          `⏰ ${new Date().toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })}`
 
-        if (agentSettings?.auto_update_contact_address) {
-          await supabaseAdmin
-            .from('contacts')
-            .update({
-              street_address: deliveryAddress.street,
-              city: deliveryAddress.city,
-              province: deliveryAddress.province,
-              postal_code: deliveryAddress.postalCode,
-              last_auto_update: new Date().toISOString(),
-              auto_updated_fields: {
-                address: new Date().toISOString()
-              }
-            })
-            .eq('id', contactId)
-
-          console.log(`[Payment Webhook] Updated contact ${contactId} address`)
+        for (const num of dispatchNumbers) {
+          await sendWhatsAppDirect(num, dispatchMsg)
         }
+        console.log('[Payment Webhook] Dispatch WhatsApp sent to', dispatchNumbers.join(', '))
       }
 
-      console.log(`[Payment Webhook] Order ${orderId} processed successfully`)
+    } else if (event === 'payment_failed') {
+      console.log(`[Payment Webhook] Payment ${paymentStatus} for order ${orderRef}`)
 
-    } else if (event === 'payment_failed' || paymentStatus !== 'COMPLETE') {
-      // Payment failed or cancelled
-      console.log(`[Payment Webhook] Payment ${paymentStatus} for order ${orderId}`)
-
-      // Send failure message to customer
-      let failureMessage = agent?.payment_failed_template ||
+      const failureMessage = agent?.payment_failed_template ||
         `It looks like your payment didn't go through — no worries at all.\nWould you like me to send you the payment link again, or would you prefer to pay a different way?`
 
-      await supabaseAdmin
-        .from('messages')
-        .insert({
-          conversation_id: conversationId,
+      if (conversation) {
+        await supabaseAdmin.from('messages').insert({
+          conversation_id: conversation.id,
           content: failureMessage,
           sender: 'agent',
           phone: conversation.phone,
-          agent_id: conversation.agent_id
+          agent_id: agentId
         })
-
-      // Send via WhatsApp
-      try {
-        const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
-        await fetch(`${siteUrl}/api/whatsapp/send`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            phone: conversation.phone,
-            message: failureMessage
-          })
-        })
-      } catch (error) {
-        console.error('[Payment Webhook] Failed to send WhatsApp message:', error)
       }
-
-      // Store pending order ID in conversation metadata for retry
-      await supabaseAdmin
-        .from('conversation_metadata')
-        .upsert({
-          conversation_id: conversationId,
-          pending_order_id: orderId,
-          updated_at: new Date().toISOString()
-        }, {
-          onConflict: 'conversation_id'
-        })
+      if (customerPhone) {
+        await sendWhatsAppDirect(customerPhone, failureMessage)
+      }
     }
 
     return NextResponse.json({ success: true, message: 'Payment webhook processed' })
