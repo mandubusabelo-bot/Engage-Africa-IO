@@ -782,11 +782,27 @@ export async function handleIncomingWhatsApp(
           const orderResult = await createOrderFromConversation(phone, orderDetails)
           if (orderResult.success && orderResult.paymentUrl) {
             paymentReply = `Here is your secure payment link 🔗\n\n${orderResult.paymentUrl}\n\nClick to pay securely. Once paid we'll get your order ready!`
+            // Notify dispatch about new order with payment link
+            notify('dispatch_pending_order', {
+              'contact.name': orderDetails.customerName || contactName,
+              'contact.phone': phone,
+              'order.productName': orderDetails.productName,
+              'order.qty': String(orderDetails.quantity || 1),
+              'order.price': '0.00',
+              'order.totalAmount': '0.00',
+              'order.collectionDetails': orderDetails.deliveryLocation,
+              'order.contactName': orderDetails.customerName || contactName,
+              'order.ref': orderResult.orderRef || 'pending',
+              'dispatch.timestamp': new Date().toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })
+            }, { role: 'dispatch' }).catch((err: any) => console.error('[Payment] Dispatch notify failed:', err?.message))
           } else if (orderResult.success) {
             paymentReply = `Your order has been placed 🎉 Ref: ${orderResult.orderRef}. Our team will contact you shortly.`
           } else {
             paymentReply = `I'm having trouble generating the link right now. Please try EFT to Capitec 1506845620 (Miss Mokoatle) or Capitec linked: 0625842441`
           }
+        } else {
+          // User changed topic or order details lost - ask them to restate
+          paymentReply = `I don't see your order details anymore. To generate a payment link, please tell me:\n- What product you want\n- Your name\n- Phone number\n- Collection point (PEP store or mall)`
         }
       }
 

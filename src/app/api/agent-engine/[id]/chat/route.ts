@@ -6,6 +6,7 @@ import {
   type OrchestratorMessage
 } from '@/lib/agentOrchestrator'
 import { extractOrderDetails, createOrderFromConversation } from '@/lib/orderService'
+import { notify } from '@/lib/services/internalNotifier'
 
 export async function POST(
   request: NextRequest,
@@ -192,6 +193,19 @@ export async function POST(
           const orderResult = await createOrderFromConversation(persistPhoneLocal, orderDetails)
           if (orderResult.success && orderResult.paymentUrl) {
             paymentReply = `Here is your secure payment link 🔗\n\n${orderResult.paymentUrl}\n\nClick to pay securely. Once paid we'll get your order ready!`
+            // Notify dispatch about new order with payment link
+            notify('dispatch_pending_order', {
+              'contact.name': orderDetails.customerName || 'Customer',
+              'contact.phone': persistPhoneLocal,
+              'order.productName': orderDetails.productName,
+              'order.qty': String(orderDetails.quantity || 1),
+              'order.price': '0.00',
+              'order.totalAmount': '0.00',
+              'order.collectionDetails': orderDetails.deliveryLocation,
+              'order.contactName': orderDetails.customerName || 'Customer',
+              'order.ref': orderResult.orderRef || 'pending',
+              'dispatch.timestamp': new Date().toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })
+            }, { role: 'dispatch' }).catch((err: any) => console.error('[Payment] Dispatch notify failed:', err?.message))
           } else if (orderResult.success) {
             paymentReply = `Your order has been placed 🎉 Ref: ${orderResult.orderRef}. Our team will contact you with payment details shortly.`
           } else {
