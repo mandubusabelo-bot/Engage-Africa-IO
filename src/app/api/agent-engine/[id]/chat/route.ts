@@ -130,9 +130,42 @@ export async function POST(
       m.sender === 'agent' || m.sender === 'ai' || m.sender === 'bot'
     )
     const lastAgentContent: string = agentMsgs[agentMsgs.length - 1]?.content || ''
+    // Stage 1: last agent showed an order summary, user is confirming it
+    const lastAgentIsOrderSummary =
+      (/x\d+.*R\d+/i.test(lastAgentContent) && /confirm/i.test(lastAgentContent)) ||
+      ((lastAgentContent.includes('Total:') || lastAgentContent.includes('\ud83d\udcb0')) &&
+       (lastAgentContent.includes('Name:') || lastAgentContent.includes('\ud83d\udccb')))
+    const userIsConfirming = /\b(yes|correct|ok|confirm|sure|proceed|confirmed)\b/i.test(message)
+
+    // Stage 2: last agent already showed payment options
     const isAtPaymentOptionsStep =
       lastAgentContent.includes('I can make the payment') ||
       (lastAgentContent.includes('EFT') && lastAgentContent.includes('Capitec'))
+
+    // Stage 1 handler: show payment options after order confirmation
+    if (lastAgentIsOrderSummary && userIsConfirming && !isAtPaymentOptionsStep) {
+      const paymentOptionsMessage = `Great! How would you like to pay? 💳\n\nI can make the payment for you 💳\nAlternatively, use these other options:\n1) EFT / Bank transfer\n2) Capitec transfer`
+      const persistedPhone = phone || `test-ui-${params.id}`
+      await supabaseAdmin.from('messages').insert({
+        agent_id: params.id,
+        content: paymentOptionsMessage,
+        sender: 'agent',
+        phone: persistedPhone,
+        conversation_id: conversationId
+      })
+      if (phone && !testMode) {
+        try {
+          await fetch(`${process.env.NEXT_PUBLIC_APP_URL || ''}/api/whatsapp/send`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phone, message: paymentOptionsMessage })
+          })
+        } catch (err: any) {
+          console.error('[AgentChat] WhatsApp send error:', err.message)
+        }
+      }
+      return NextResponse.json({ success: true, response: paymentOptionsMessage, agent: agent.name })
+    }
 
     if (isAtPaymentOptionsStep) {
       const lc = message.toLowerCase().trim()
@@ -279,8 +312,13 @@ export async function POST(
     // ── ORDER SUMMARY DETECTION: always replace with exact payment options ──────
     const looksLikeOrderSummary =
       !orchestrationResult.orderCreated &&
-      (aiResponse.includes('Total:') || /total.*r\d+/i.test(aiResponse) || aiResponse.includes('💰')) &&
-      (aiResponse.includes('Name:') || aiResponse.includes('Cell:') || aiResponse.includes('📋'))
+      (
+        // Pattern 1: explicit Total + Name/Cell labels
+        ((aiResponse.includes('Total:') || /total.*r\d+/i.test(aiResponse) || aiResponse.includes('\ud83d\udcb0')) &&
+         (aiResponse.includes('Name:') || aiResponse.includes('Cell:') || aiResponse.includes('\ud83d\udccb'))) ||
+        // Pattern 2: quantity×price pattern with confirm keyword
+        (/x\d+.*R\d+/i.test(aiResponse) && /confirm/i.test(aiResponse))
+      )
     if (looksLikeOrderSummary) {
       // Strip any payment text the LLM may have added, then append the exact options
       aiResponse = aiResponse

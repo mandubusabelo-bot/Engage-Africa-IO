@@ -736,9 +736,27 @@ export async function handleIncomingWhatsApp(
     // ── 9b. PAYMENT STATE: deterministic — same logic as chat route ──────────
     const agentHistoryMsgs = history.filter((m: any) => m.sender === 'agent' || m.sender === 'ai' || m.sender === 'bot')
     const lastAgentHistoryContent: string = agentHistoryMsgs[agentHistoryMsgs.length - 1]?.content || ''
+
+    // Stage 1: last agent was an order summary and user is confirming → show payment options
+    const lastAgentIsOrderSummary =
+      (/x\d+.*R\d+/i.test(lastAgentHistoryContent) && /confirm/i.test(lastAgentHistoryContent)) ||
+      ((lastAgentHistoryContent.includes('Total:') || lastAgentHistoryContent.includes('💰')) &&
+       (lastAgentHistoryContent.includes('Name:') || lastAgentHistoryContent.includes('📋')))
+    const userIsConfirming = /\b(yes|correct|ok|confirm|sure|proceed|confirmed)\b/i.test(message)
     const isAtPaymentStep =
       lastAgentHistoryContent.includes('I can make the payment') ||
       (lastAgentHistoryContent.includes('EFT') && lastAgentHistoryContent.includes('Capitec'))
+
+    if (lastAgentIsOrderSummary && userIsConfirming && !isAtPaymentStep) {
+      const paymentOptionsMsg = `Great! How would you like to pay? 💳\n\nI can make the payment for you 💳\nAlternatively, use these other options:\n1) EFT / Bank transfer\n2) Capitec transfer`
+      await supabaseAdmin.from('messages').insert({ agent_id: agent?.id || null, content: paymentOptionsMsg, sender: 'agent', phone })
+      const interactiveResult = await sendPaymentOptionsInteractive(phone, lastAgentHistoryContent.slice(0, 300))
+      if (!interactiveResult.success) {
+        await sendWhatsAppReply(phone, paymentOptionsMsg)
+      }
+      await emitWhatsAppMessageSent(phone, paymentOptionsMsg)
+      return
+    }
 
     if (isAtPaymentStep) {
       const lc = message.toLowerCase().trim()
