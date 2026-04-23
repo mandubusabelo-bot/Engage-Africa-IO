@@ -35,6 +35,7 @@ import {
 import { runAgentActions } from './agentActions'
 import { notify } from './services/internalNotifier'
 import { sendPaymentOptionsInteractive } from './services/evolutionNotifier'
+import { buildCommerceSystemPrompt, runAgentOrchestrator, type OrchestratorMessage } from './agentOrchestrator'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -716,22 +717,25 @@ export async function handleIncomingWhatsApp(
       systemPrompt = await injectActionResults(systemPrompt, agent.id, phone, message)
     }
 
-    // ── 9. Build messages array for LLM ──────────────────────────────────────
-    const llmMessages: Message[] = [{ role: 'system', content: systemPrompt }]
+    // ── 9. Build orchestrator messages (same flow as UI chat) ───────────────
+    const commerceSystemPrompt = buildCommerceSystemPrompt(systemPrompt, {
+      agentName: agent?.agent_name || agent?.name || 'Assistant',
+      agentId: agent?.id,
+      phone
+    })
+
+    const orchestratorMessages: OrchestratorMessage[] = [
+      { role: 'system', content: commerceSystemPrompt }
+    ]
 
     history.forEach((msg: any) => {
-      // Don't re-add the current message if it's already the last in history
-      llmMessages.push({
+      orchestratorMessages.push({
         role: msg.sender === 'agent' || msg.sender === 'ai' || msg.sender === 'bot' ? 'assistant' : 'user',
         content: msg.content
       })
     })
 
-    // Ensure current message is the last user message
-    const lastMsg = llmMessages[llmMessages.length - 1]
-    if (!lastMsg || lastMsg.role !== 'user' || lastMsg.content !== message) {
-      llmMessages.push({ role: 'user', content: message })
-    }
+    orchestratorMessages.push({ role: 'user', content: message })
 
     // ── 9b. PAYMENT STATE: deterministic — same logic as chat route ──────────
     const agentHistoryMsgs = history.filter((m: any) => m.sender === 'agent' || m.sender === 'ai' || m.sender === 'bot')
@@ -797,12 +801,32 @@ export async function handleIncomingWhatsApp(
     }
     // ── END PAYMENT STATE ─────────────────────────────────────────────────────
 
-    console.log(`[Handler] Sending ${llmMessages.length} messages to LLM`)
-    console.log(`[Handler] System prompt preview: ${systemPrompt.slice(0, 300)}...`)
+    console.log(`[Handler] System prompt preview: ${commerceSystemPrompt.slice(0, 300)}...`)
 
-    // ── 10. Get LLM response ──────────────────────────────────────────────────
-    let aiResponse = await getAIResponseWithHistory(llmMessages)
-    console.log(`[Handler] LLM response: "${aiResponse.slice(0, 100)}"`)
+    // ── 10. Orchestrate with tool calls (same as UI chat) ─────────────────────
+    const callLLM = async (msgs: OrchestratorMessage[]): Promise<string> => {
+      // Map tool messages to user-visible tool results for Gemini/OpenRouter
+      const chatMessages = msgs.map((m) => {
+        if (m.role === 'tool') {
+          return { role: 'user', content: `TOOL_RESULT(${m.name || 'tool'}): ${m.content}` }
+        }
+        return { role: m.role, content: m.content }
+      })
+      return getAIResponseWithHistory(chatMessages as any)
+    }
+
+    const orchestrationResult = await runAgentOrchestrator(
+      orchestratorMessages,
+      {
+        agentName: agent?.agent_name || agent?.name || 'Assistant',
+        agentId: agent?.id,
+        phone
+      },
+      callLLM,
+      3
+    )
+
+    let aiResponse = orchestrationResult.reply
 
     // Interactive payment picker for ANY order summary (strips LLM text options, replaces with list message)
     const looksLikeOrderSummary =
