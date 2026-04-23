@@ -171,8 +171,10 @@ export async function POST(
           .eq('is_enabled', true)
           .limit(1)
         const dispatchAction = actions?.[0]
+        console.log(`[Dispatch] Action found: ${!!dispatchAction}, config:`, JSON.stringify(dispatchAction?.config || null))
         const configNumbers: string = dispatchAction?.config?.dispatchNumbers || ''
         const envNumbers: string = process.env.DISPATCH_NUMBERS || process.env.DISPATCH_NUMBER || ''
+        console.log(`[Dispatch] configNumbers="${configNumbers}" envNumbers="${envNumbers}"`)
         const dispatchNumbers = (configNumbers || envNumbers)
           .split(/[,;\n]/).map((n: string) => n.trim()).filter(Boolean)
 
