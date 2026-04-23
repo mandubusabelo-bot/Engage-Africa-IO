@@ -222,9 +222,32 @@ export async function runAgentActions(params: {
         .limit(1)
         .single()
 
-      // Send WhatsApp notification to human agent using template
+      // Send WhatsApp directly to human agent via Evolution API
+      const apiUrl = process.env.EVOLUTION_API_URL
+      const apiKey = process.env.EVOLUTION_API_KEY
+      const instance = process.env.EVOLUTION_INSTANCE_NAME || process.env.EVOLUTION_INSTANCE
+      const cleanNum = String(humanAgentPhone).replace(/\D/g, '')
+      const handoverMsg =
+        `🙋 *Customer needs human help*\n\n` +
+        `👤 *Customer:* ${contact?.name || phone}\n` +
+        `📱 *Phone:* ${phone}\n` +
+        `💬 *Last message:* ${message.slice(0, 300)}\n` +
+        (mergedConfig.reason ? `📝 *Reason:* ${mergedConfig.reason}\n` : '') +
+        `⏰ ${new Date().toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })}`
+      if (apiUrl && apiKey && instance) {
+        await fetch(`${apiUrl}/message/sendText/${instance}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', apikey: apiKey },
+          body: JSON.stringify({ number: cleanNum, text: handoverMsg })
+        }).catch(err => console.error('[Handover] WhatsApp send failed:', err?.message))
+        console.log(`[Handover] Sent to human agent: ${cleanNum}`)
+      } else {
+        console.warn('[Handover] Evolution API env vars missing — could not send to human agent')
+      }
+
+      // Also try template-based notify as fallback (non-blocking)
       if (conversation?.id && contact?.id) {
-        await notify('escalation_human', {
+        notify('escalation_human', {
           'contact.name': contact.name || phone,
           'contact.phone': phone,
           'escalation.reason': mergedConfig.reason || 'Customer needs human assistance',
@@ -235,13 +258,7 @@ export async function runAgentActions(params: {
           recipients: [String(humanAgentPhone)],
           conversationId: conversation.id,
           contactId: contact.id
-        })
-
-        // Add internal note
-        await notify('escalation_internal_note', {
-          'escalation.reason': mergedConfig.reason || 'Customer needs human assistance',
-          'escalation.lastMessage': message
-        }, { conversationId: conversation.id })
+        }).catch(() => {})
       }
 
       results.push({

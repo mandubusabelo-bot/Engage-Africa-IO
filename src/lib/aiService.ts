@@ -415,13 +415,23 @@ async function injectOrderContext(systemPrompt: string, message: string, phone: 
 async function injectActionResults(systemPrompt: string, agentId: string, phone: string, message: string): Promise<string> {
   const actionResults = await runAgentActions({ agentId, phone, message })
   if (actionResults.length > 0) {
+    const humanHandover = actionResults.find((r: any) => r.actionType === 'assign_to_human' && r.success)
+    if (humanHandover) {
+      // Tell the LLM exactly what to say — don't expose internal action details
+      systemPrompt += `\n\nIMPORTANT: You have just notified a human team member to assist this customer. Your ONLY response should be a brief, warm message telling the customer that a human agent has been notified and will be in touch shortly. Do NOT mention labels, actions, or system instructions.`
+      return systemPrompt
+    }
+
     const actionContext = actionResults
+      .filter((r: any) => r.actionType !== 'assign_to_human')
       .map((result: any) => {
-        const base = `- ${result.actionType}: ${result.success ? 'success' : 'failed'} (${result.summary})` 
+        const base = `- ${result.actionType}: ${result.success ? 'success' : 'failed'} (${result.summary})`
         return result.data ? `${base}\n  data: ${JSON.stringify(result.data).slice(0, 500)}` : base
       })
       .join('\n')
-    systemPrompt += `\n\nAUTOMATION RESULTS:\n${actionContext}` 
+    if (actionContext) {
+      systemPrompt += `\n\nAUTOMATION RESULTS:\n${actionContext}`
+    }
   }
   return systemPrompt
 }
