@@ -61,9 +61,20 @@ function parseRecipientNumbers(raw?: string): string[] {
 function shouldTrigger(action: AgentActionRecord, message: string) {
   if (!action.is_enabled) return false
   const condition = (action.trigger_condition || '').trim().toLowerCase()
+  const normalizedMessage = message.toLowerCase()
+
+  // assign_to_human: also match common "I want a human" phrases regardless of trigger wording
+  if (action.action_type === 'assign_to_human') {
+    const humanPhrases = [
+      'human', 'agent', 'person', 'operator', 'speak to someone', 'talk to someone',
+      'real person', 'call me', 'speak to a person', 'human help', 'human support',
+      'not a bot', 'need help', 'escalate', 'supervisor', 'manager'
+    ]
+    if (humanPhrases.some((p) => normalizedMessage.includes(p))) return true
+  }
+
   if (!condition) return true
 
-  const normalizedMessage = message.toLowerCase()
   const tokens = condition
     .split(/[|,\n]/)
     .map((t) => t.trim())
