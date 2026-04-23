@@ -34,6 +34,7 @@ import {
 } from './orderService'
 import { runAgentActions } from './agentActions'
 import { notify } from './services/internalNotifier'
+import { sendPaymentOptionsInteractive } from './services/evolutionNotifier'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -743,12 +744,13 @@ export async function handleIncomingWhatsApp(
       const lc = message.toLowerCase().trim()
       let paymentReply = ''
 
-      if (/\b(2|eft|bank transfer|bank|transfer)\b/.test(lc)) {
+      if (/\b(2|eft|bank transfer|bank|transfer)\b/.test(lc) || lc === 'pay_eft') {
         paymentReply = `EFT details 🏦\n\nBank: Capitec Bank\nAccount name: Miss Mokoatle\nAccount number: 1506845620\n\nOnce paid, please send your Proof of Payment (POP) so we can process your order.`
-      } else if (/\b(3|capitec)\b/.test(lc)) {
+      } else if (/\b(3|capitec)\b/.test(lc) || lc === 'pay_capitec') {
         paymentReply = `Capitec payment 📱\n\nAccount name: Miss Mokoatle\nCapitec linked number: 0625842441\n\nSend your payment then share your Proof of Payment (POP).`
       } else if (
         /\b(1|yes|ok|sure|please|agent|pay online|payment link|process|go ahead|generate|send|link)\b/.test(lc) ||
+        lc === 'pay_online' ||
         lc.includes('make the payment') ||
         lc.includes('pay for me') ||
         lc.includes('make payment') ||
@@ -788,8 +790,23 @@ export async function handleIncomingWhatsApp(
     const looksLikeOrderSummary =
       (aiResponse.includes('Total:') || /total.*r\d+/i.test(aiResponse) || aiResponse.includes('💰')) &&
       (aiResponse.includes('Name:') || aiResponse.includes('Cell:') || aiResponse.includes('📋'))
+
     if (looksLikeOrderSummary && !aiResponse.includes('I can make the payment') && !aiResponse.includes('EFT')) {
-      aiResponse += '\n\nI can make the payment for you 💳\nAlternatively, use these other options:\n1) EFT / Bank transfer\n2) Capitec transfer'
+      // Save to DB with text marker so the next-turn payment state check works
+      const dbContent = aiResponse + '\n\nI can make the payment for you 💳\nAlternatively, use these other options:\n1) EFT / Bank transfer\n2) Capitec transfer'
+      await supabaseAdmin.from('messages').insert({ agent_id: agent?.id || null, content: dbContent, sender: 'agent', phone })
+
+      // Send the order summary first
+      await sendWhatsAppReply(phone, aiResponse)
+
+      // Then send the interactive list picker (falls back to text if unsupported)
+      const interactiveResult = await sendPaymentOptionsInteractive(phone, aiResponse)
+      if (!interactiveResult.success) {
+        await sendWhatsAppReply(phone, 'I can make the payment for you 💳\nAlternatively, use these other options:\n1) EFT / Bank transfer\n2) Capitec transfer')
+      }
+
+      await emitWhatsAppMessageSent(phone, dbContent)
+      return
     }
 
     // ── 11. Save response and send ────────────────────────────────────────────

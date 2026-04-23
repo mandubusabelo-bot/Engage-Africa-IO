@@ -13,7 +13,11 @@ export async function POST(request: NextRequest) {
 
     if ((event === 'MESSAGES_UPSERT' || event === 'messages.upsert') && data) {
       const phone = data.key?.remoteJid
-      const text = data.message?.conversation || data.message?.extendedTextMessage?.text
+      const text =
+        data.message?.conversation ||
+        data.message?.extendedTextMessage?.text ||
+        data.message?.listResponseMessage?.singleSelectReply?.selectedRowId ||
+        data.message?.buttonsResponseMessage?.selectedButtonId
       const fromMe = data.key?.fromMe
       const pushName = data.pushName
       const hasImage = data.message?.imageMessage || data.message?.viewOnceMessage?.message?.imageMessage

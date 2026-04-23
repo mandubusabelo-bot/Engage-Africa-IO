@@ -138,14 +138,15 @@ export async function POST(
       const lc = message.toLowerCase().trim()
       let paymentReply = ''
 
-      if (/\b(2|eft|bank transfer|bank|transfer)\b/.test(lc)) {
+      if (/\b(2|eft|bank transfer|bank|transfer)\b/.test(lc) || lc === 'pay_eft') {
         paymentReply = `EFT details 🏦\n\nBank: Capitec Bank\nAccount name: Miss Mokoatle\nAccount number: 1506845620\n\nOnce paid, please send your Proof of Payment (POP) so we can process your order.`
 
-      } else if (/\b(3|capitec)\b/.test(lc)) {
+      } else if (/\b(3|capitec)\b/.test(lc) || lc === 'pay_capitec') {
         paymentReply = `Capitec payment 📱\n\nAccount name: Miss Mokoatle\nCapitec linked number: 0625842441\n\nSend your payment then share your Proof of Payment (POP).`
 
       } else if (
         /\b(1|yes|ok|sure|please|agent|pay online|payment link|process|go ahead|generate|send|link)\b/.test(lc) ||
+        lc === 'pay_online' ||
         lc.includes('make the payment') ||
         lc.includes('pay for me') ||
         lc.includes('make payment') ||
