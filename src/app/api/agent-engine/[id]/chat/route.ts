@@ -276,14 +276,19 @@ export async function POST(
 
     let aiResponse = orchestrationResult.reply
 
-    // ── ORDER SUMMARY DETECTION: append exact payment options if LLM returned a summary ──
+    // ── ORDER SUMMARY DETECTION: always replace with exact payment options ──────
     const looksLikeOrderSummary =
       !orchestrationResult.orderCreated &&
       (aiResponse.includes('Total:') || /total.*r\d+/i.test(aiResponse) || aiResponse.includes('💰')) &&
       (aiResponse.includes('Name:') || aiResponse.includes('Cell:') || aiResponse.includes('📋'))
-    if (looksLikeOrderSummary &&
-        !aiResponse.includes('I can make the payment') &&
-        !aiResponse.includes('EFT')) {
+    if (looksLikeOrderSummary) {
+      // Strip any payment text the LLM may have added, then append the exact options
+      aiResponse = aiResponse
+        .split('\n\nI can make the payment')[0]
+        .split('\n\nAlternatively')[0]
+        .split('\nEFT')[0]
+        .split('\nOnce confirmed')[0]
+        .trim()
       aiResponse += '\n\nI can make the payment for you 💳\nAlternatively, use these other options:\n1) EFT / Bank transfer\n2) Capitec transfer'
     }
     // ── END ORDER SUMMARY DETECTION ──────────────────────────────────────────────
